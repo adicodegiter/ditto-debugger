@@ -12,6 +12,7 @@ from safety.policy import Policy
 from safety.runner import RunnerError
 from monitor.window import baseline_from_metrics
 from ai.diagnosis import diagnose, history_outcome
+from ai.ranking import rank_findings
 from ai.report import generate_findings
 
 

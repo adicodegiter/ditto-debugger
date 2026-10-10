@@ -12,6 +12,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
 
 from app.main import create_app  # noqa: E402
 from app.settings import Settings  # noqa: E402
+from ai.report import generate_findings  # noqa: E402
 
 
 class DashboardApiTests(unittest.TestCase):
@@ -33,6 +34,20 @@ class DashboardApiTests(unittest.TestCase):
         ts = (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat().replace("+00:00", "Z")
         with (self.metrics / f"{kind}.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"kind": kind, "source": "live", "run_id": "r", "timestamp": ts, **fields}) + "\n")
+
+    def test_ranked_findings_endpoint_responds_and_ranks_a_stored_run(self):
+        empty = self.client.get("/api/v1/findings/ranked")
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(empty.json(), {"ranked": []})
+        run = {"run_id": "run-r1", "experiment_id": "e1", "status": "completed", "recovery_verified": True,
+               "diagnosis": {"target_component": "things-search", "action": "pause_container"},
+               "observations": [{"phase": "fault", "write_error_rate": 0.0, "search_error_rate": 1.0}]}
+        orchestrator = self.client.app.state.orchestrator
+        orchestrator.repository.save_run(run)
+        orchestrator.repository.save_findings("run-r1", generate_findings(run))
+        ranked = self.client.get("/api/v1/findings/ranked").json()["ranked"]
+        self.assertEqual([item["run_id"] for item in ranked], ["run-r1"])
+        self.assertEqual(ranked[0]["rank"], 1)
 
     def test_live_slis_and_series_come_from_metric_files(self):
         empty = self.client.get("/api/v1/slis").json()
