@@ -1,0 +1,21 @@
+# P4 planner configuration (owner: P4). Safety limits stay in experiment-policy.yaml (owner: P5);
+# this file only holds ranking inputs and the SLI effect model. Nothing here can widen the allow-list.
+version: 1
+
+# SLIs the telemetry/workload agent really measures right now. Ask P3 and edit this list.
+# An SLI that is not listed is never predicted, and a target whose effect we cannot observe is rejected.
+measured_slis: [write, search, freshness]
+
+# The first experiment must be low blast radius (impact is 0..1, see docs/planner-design.md).
+first_run_max_impact: 0.35
+
+# Predicted effect on each SLI while the target container is restarted: hold | degrade | fail.
+# SLIs not listed for a target are predicted to hold.
+predicted_effects:
+  gateway:       {write: fail, search: fail, freshness: degrade}
+  things-search: {search: fail}
+
+diagnosis:
+  fail_error_rate: 0.20      # error rate at or above this = fail
+  degrade_error_rise: 0.02   # error rate rising more than this above baseline = degrade
+  slow_recovery_s: 60        # recovery slower than this is flagged

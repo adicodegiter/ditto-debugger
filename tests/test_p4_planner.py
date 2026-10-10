@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from datetime import datetime, timezone
+from pathlib import Path
+
+import yaml
+from jsonschema import Draft202012Validator
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "backend"))
+
+from app.agents.discovery import DittoDiscoveryAgent
+from app.agents.mapping import ArchitectureMapperAgent
+from app.agents.planning import ExperimentPlanningAgent
+from app.store import LocalRepository
+
+POLICY = ROOT / "configs" / "experiment-policy.yaml"
+SCHEMA = json.loads((ROOT / "schemas" / "experiment.schema.json").read_text(encoding="utf-8"))
+
+
+def real_graph():
+    return ArchitectureMapperAgent().map(DittoDiscoveryAgent(ROOT / "deploy" / "ditto" / "docker-compose.yml").discover())
+
+
+def evidence(graph):
+    telemetry = {"status": "available", "coverage": 1.0, "observations": [{"metric": "up", "quality": "fresh"}]}
+    baseline = {"baseline_id": "baseline-test", "captured_at": datetime.now(timezone.utc).isoformat(),
+                "graph_version": graph["graph_version"], "telemetry_status": "available"}
+    return telemetry, baseline
+
+
+class P4PlannerTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = LocalRepository(Path(self.tmp.name) / "t.sqlite3")
+        self.graph = real_graph()
+        self.telemetry, self.baseline = evidence(self.graph)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def plan(self, planner_config=None):
+        return ExperimentPlanningAgent(POLICY, self.repo, planner_config).plan(self.graph, self.telemetry, self.baseline)
+
+    def test_first_experiment_is_low_blast_radius_things_search_on_the_real_compose_graph(self):
+        result = self.plan()
+        self.assertEqual([c["target_component"] for c in result["candidates"]], ["things-search"])
+        top = result["candidates"][0]
+        self.assertEqual(top["predicted_slis"], {"write": "hold", "search": "fail", "freshness": "hold"})
+        self.assertIn("low-blast-radius first experiment", top["reason"])
+        self.assertTrue(any(r["target"] == "gateway" and "deferred" in r["reason"] for r in result["policy_rejections"]))
+        Draft202012Validator(SCHEMA).validate(top)
+
+    def test_gateway_becomes_eligible_after_a_completed_run_and_is_ranked_first(self):
+        self.repo.record_outcome("things-search", "restart_container", "failure_observed", "run:one")
+        result = self.plan()
+        self.assertEqual(result["candidates"][0]["target_component"], "gateway")
+        self.assertEqual(result["candidates"][0]["predicted_slis"]["write"], "fail")
+        for c in result["candidates"]:
+            Draft202012Validator(SCHEMA).validate(c)
+
+    def test_target_whose_effect_cannot_be_observed_is_rejected(self):
+        cfg = Path(self.tmp.name) / "planner.yaml"
+        cfg.write_text(yaml.safe_dump({"measured_slis": ["write"]}), encoding="utf-8")
+        planner = ExperimentPlanningAgent(POLICY, self.repo, cfg)
+        # config file replaces only the keys it sets; predicted_effects falls back to empty -> nothing observable
+        result = planner.plan(self.graph, self.telemetry, self.baseline)
+        self.assertEqual(result["candidates"], [])
+        self.assertTrue(all("observable" in r["reason"] for r in result["policy_rejections"] if r["target"] in ("gateway", "things-search")))
+
+    def test_only_write_measured_falls_back_to_gateway_and_says_so(self):
+        cfg = Path(self.tmp.name) / "planner.yaml"
+        cfg.write_text(yaml.safe_dump({"measured_slis": ["write"], "predicted_effects": {
+            "gateway": {"write": "fail"}, "things-search": {"search": "fail"}}}), encoding="utf-8")
+        result = ExperimentPlanningAgent(POLICY, self.repo, cfg).plan(self.graph, self.telemetry, self.baseline)
+        self.assertEqual([c["target_component"] for c in result["candidates"]], ["gateway"])
+        self.assertIn("lowest impact available", result["candidates"][0]["reason"])
+
+    def test_forbidden_targets_never_appear(self):
+        result = self.plan()
+        names = {c["target_component"] for c in result["candidates"]}
+        self.assertFalse(names & {"mongodb", "nginx", "policies", "things", "connectivity", "ditto-ui"})
+        self.assertFalse(result["execution_enabled"])
+
+    def test_ranking_is_reproducible(self):
+        self.repo.record_outcome("things-search", "restart_container", "no_failure_observed", "run:one")
+        self.assertEqual(json.dumps(self.plan(), sort_keys=True), json.dumps(self.plan(), sort_keys=True))
+
+
+if __name__ == "__main__":
+    unittest.main()

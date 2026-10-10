@@ -13,6 +13,8 @@
     "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 30 },
     "hypothesis": { "type": "string", "minLength": 1 },
     "predicted_impacts": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "predicted_slis": { "type": "object", "additionalProperties": { "enum": ["hold", "degrade", "fail"] } },
+    "reason": { "type": "string", "minLength": 1 },
     "information_gain": { "type": "number", "minimum": 0, "maximum": 1 },
     "risk_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "evidence_refs": { "type": "array", "items": { "type": "string" } },
