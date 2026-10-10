@@ -1,0 +1,183 @@
+{
+  "baseline_valid": true,
+  "baseline_write_p95_ms": 15.734,
+  "cleanup_state": "complete",
+  "created_at": "2026-10-10T10:02:09.798792+00:00",
+  "experiment_id": "restart-things-search-8c0ebe0c9227635d",
+  "findings": [
+    {
+      "ai_generated": false,
+      "confidence": 0.95,
+      "evidence": [
+        "run:run-c8b30b07c9f3",
+        "recovery:things-search",
+        "observation_count:7",
+        "degraded_observations:5"
+      ],
+      "id": "run-c8b30b07c9f3-availability",
+      "recommendation": "Investigate the affected dependency and add an availability budget or timeout protection before increasing fault duration.",
+      "run_id": "run-c8b30b07c9f3",
+      "schema_version": "1.0",
+      "severity": "medium",
+      "summary": "The approved experiment caused measurable client-side availability degradation."
+    }
+  ],
+  "observations": [
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.041053,
+      "freshness_samples": 56,
+      "phase": "pre_fault",
+      "search_error_rate": 0.0,
+      "search_samples": 56,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:02:10.367354+00:00",
+      "window_start": "2026-10-10T10:01:40.367354+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 15.107,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.04272,
+      "freshness_samples": 37,
+      "phase": "fault",
+      "search_error_rate": 0.0,
+      "search_samples": 37,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:02:21.195908+00:00",
+      "window_start": "2026-10-10T10:01:51.195908+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 15.107,
+      "write_samples": 38
+    },
+    {
+      "error_rate": 0.030303030303030304,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.064973,
+      "freshness_samples": 33,
+      "phase": "fault",
+      "search_error_rate": 0.030303030303030304,
+      "search_samples": 33,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:02:23.727086+00:00",
+      "window_start": "2026-10-10T10:01:53.727086+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 19.609,
+      "write_samples": 34
+    },
+    {
+      "error_rate": 0.034482758620689655,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.064973,
+      "freshness_samples": 29,
+      "phase": "fault",
+      "search_error_rate": 0.034482758620689655,
+      "search_samples": 29,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:02:26.303676+00:00",
+      "window_start": "2026-10-10T10:01:56.303676+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 19.609,
+      "write_samples": 30
+    },
+    {
+      "error_rate": 0.041666666666666664,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.064973,
+      "freshness_samples": 24,
+      "phase": "fault",
+      "search_error_rate": 0.041666666666666664,
+      "search_samples": 24,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:02:28.750139+00:00",
+      "window_start": "2026-10-10T10:01:58.750139+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 19.609,
+      "write_samples": 25
+    },
+    {
+      "error_rate": 0.043478260869565216,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.064973,
+      "freshness_samples": 23,
+      "phase": "fault",
+      "search_error_rate": 0.043478260869565216,
+      "search_samples": 23,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:02:29.192424+00:00",
+      "window_start": "2026-10-10T10:01:59.192424+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 19.609,
+      "write_samples": 24
+    },
+    {
+      "error_rate": 0.25,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 10.062506,
+      "freshness_samples": 4,
+      "phase": "recovered",
+      "search_error_rate": 0.25,
+      "search_samples": 4,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:02:33.676376+00:00",
+      "window_start": "2026-10-10T10:02:29.919209+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 19.279,
+      "write_samples": 3
+    }
+  ],
+  "prediction": {
+    "predicted_impacts": [
+      "things-search"
+    ]
+  },
+  "recovery": {
+    "canary": true,
+    "canary_path": "/api/2/search/things?option=size(1)",
+    "canary_status": 200,
+    "health_status": 200,
+    "healthy": true,
+    "sli_reason": null,
+    "slis_within_baseline": true,
+    "target": "things-search"
+  },
+  "recovery_time_seconds": 4.188,
+  "recovery_verified": true,
+  "resilience_score": {
+    "components": {},
+    "coverage": 0,
+    "score": null,
+    "status": "incomplete"
+  },
+  "run_id": "run-c8b30b07c9f3",
+  "safety_violation": false,
+  "schema_version": "1.0",
+  "status": "completed",
+  "timeline": {
+    "created_at": "2026-10-10T10:02:09.798792+00:00",
+    "injected_at": "2026-10-10T10:02:19.187083+00:00",
+    "recovered_at": "2026-10-10T10:02:34.111293+00:00",
+    "rollback_at": "2026-10-10T10:02:29.919209+00:00"
+  },
+  "watchdog": {
+    "armed": false,
+    "deadline": "2026-10-10T10:02:35.694560+00:00"
+  }
+}
