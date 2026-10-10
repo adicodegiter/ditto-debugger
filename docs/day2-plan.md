@@ -46,7 +46,7 @@ and video. 6.3 (architecture page) and 6.7 (team form) have no dependencies and 
 | 5.4 | Planner per-SLI predictions (`predicted_slis`: hold / degrade / fail) per fault type; schema field added | P4 | P2 (schema review) | 5.1 | Each candidate shows predictions; schema tests pass | On `feat/m5-fault-catalog`, not merged |
 | 5.5 | Run the three experiments live: restart (done), pause, burst. Each: fresh baseline, dry run, typed approval, execute | P5 runs | P3 watches SLIs; P1 keeps stack up; a human approves | 5.1–5.4 | Three run records in `data/experiments/`, each with recovery verified or an abort reason | Done 2026-10-10: restart (M4), pause `run-370897363c60`, burst `run-4083aa7e13a1`; see `docs/m5-results.md` |
 | 5.6 | Ranked findings from the three runs; measured facts separate from hypotheses; each with a fix and a validation test | P4 | P3 (numbers) | 5.5 | Ordered by severity; every claim linked to a run | Pending |
-| 5.7 | Remediation re-run: keep the 3 s search timeout (PR #8), re-run the `things-search` restart, compare before/after | P3 | P4 records, P5 runs | 5.5 | Before/after numbers for the search hang in the report | Pending |
+| 5.7 | Remediation re-run: keep the 3 s search timeout (PR #8), re-run the `things-search` restart, compare before/after | P3 | P4 records, P5 runs | 5.5 | Before/after numbers for the search hang in the report | Done 2026-10-10: `run-a09cb1bcbb7c`; failing search 10.0 s → 3.0 s; see `docs/m5-results.md` |
 
 ## M6: score, deliverables, submission (Day 2 afternoon)
 

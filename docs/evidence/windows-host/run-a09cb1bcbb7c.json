@@ -1,0 +1,214 @@
+{
+  "action_params": {
+    "duration_seconds": 10
+  },
+  "action_state": {},
+  "baseline_valid": true,
+  "baseline_write_p95_ms": 24.666,
+  "cleanup_state": "complete",
+  "created_at": "2026-10-10T18:20:55.452892+00:00",
+  "diagnosis": {
+    "action": "restart_container",
+    "comparison": {
+      "freshness": {
+        "error_rate": 0.0,
+        "observed": "hold",
+        "p95_ms": null,
+        "predicted": "hold",
+        "verdict": "match"
+      },
+      "search": {
+        "error_rate": 0.047619047619047616,
+        "observed": "degrade",
+        "p95_ms": null,
+        "predicted": "fail",
+        "verdict": "better_than_predicted"
+      },
+      "write": {
+        "error_rate": 0.0,
+        "observed": "hold",
+        "p95_ms": 38.195,
+        "predicted": "hold",
+        "verdict": "match"
+      }
+    },
+    "created_at": "2026-10-10T18:21:31.625672+00:00",
+    "diagnosis_id": "diag-run-a09cb1bcbb7c",
+    "evidence_use": "experiment",
+    "experiment_id": "restart-things-search-15cfe06412e55155",
+    "flags": [],
+    "kill_switch": {
+      "forced_test": false,
+      "tripped": false
+    },
+    "prediction_accuracy": 0.67,
+    "recovered": true,
+    "recovery_s": 22.359,
+    "run_id": "run-a09cb1bcbb7c",
+    "schema_version": "1.0",
+    "summary": "things-search restart_container: prediction matched on 2 of 3 measured SLIs. Recovery: 22.359s.",
+    "target_component": "things-search",
+    "warnings": []
+  },
+  "experiment_id": "restart-things-search-15cfe06412e55155",
+  "findings": [
+    {
+      "ai_generated": false,
+      "confidence": 0.95,
+      "evidence": [
+        "run:run-a09cb1bcbb7c",
+        "recovery:things-search",
+        "observation_count:4",
+        "degraded_observations:3"
+      ],
+      "id": "run-a09cb1bcbb7c-availability",
+      "recommendation": "Investigate the affected dependency and add an availability budget or timeout protection before increasing fault duration.",
+      "run_id": "run-a09cb1bcbb7c",
+      "schema_version": "1.0",
+      "severity": "medium",
+      "summary": "The approved experiment caused measurable client-side availability degradation."
+    },
+    {
+      "ai_generated": false,
+      "confidence": 0.75,
+      "evidence": [
+        "run:run-a09cb1bcbb7c",
+        "recovery:things-search",
+        "diagnosis:diag-run-a09cb1bcbb7c"
+      ],
+      "id": "run-a09cb1bcbb7c-better-than-predicted",
+      "recommendation": "Update the planner's effect model, or check that the measurement window captured the full outage.",
+      "run_id": "run-a09cb1bcbb7c",
+      "schema_version": "1.0",
+      "severity": "info",
+      "summary": "The system absorbed more than predicted on: search (predicted fail, observed degrade)."
+    }
+  ],
+  "history_outcome": "no_failure_observed",
+  "observations": [
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.03161,
+      "freshness_samples": 57,
+      "phase": "pre_fault",
+      "search_error_rate": 0.0,
+      "search_samples": 57,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T18:20:56.642625+00:00",
+      "window_start": "2026-10-10T18:20:26.642625+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 26.772,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.022222222222222223,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.0423,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.022222222222222223,
+      "search_samples": 45,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T18:21:05.209977+00:00",
+      "window_start": "2026-10-10T18:20:35.209977+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.195,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.047619047619047616,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.0423,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.047619047619047616,
+      "search_samples": 42,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T18:21:07.499052+00:00",
+      "window_start": "2026-10-10T18:20:37.499052+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.195,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.07407407407407407,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.035239,
+      "freshness_samples": 40,
+      "phase": "recovered",
+      "search_error_rate": 0.07407407407407407,
+      "search_samples": 27,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T18:21:30.622792+00:00",
+      "window_start": "2026-10-10T18:21:09.265766+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 32.455,
+      "write_samples": 40
+    }
+  ],
+  "prediction": {
+    "predicted_impacts": [
+      "things-search"
+    ],
+    "predicted_slis": {
+      "freshness": "hold",
+      "search": "fail",
+      "write": "hold"
+    }
+  },
+  "recovery": {
+    "canary": true,
+    "canary_path": "/api/2/search/things?option=size(1)",
+    "canary_status": 200,
+    "health_status": 200,
+    "healthy": true,
+    "sli_reason": null,
+    "slis_within_baseline": true,
+    "target": "things-search"
+  },
+  "recovery_time_seconds": 22.359,
+  "recovery_verified": true,
+  "resilience_score": {
+    "components": {
+      "availability": 0.9523809523809523,
+      "containment": 1.0,
+      "detection": 1.0,
+      "latency": 0.6457913339442335,
+      "recovery": 0.8757833333333334
+    },
+    "coverage": 1.0,
+    "score": 89.0,
+    "status": "complete"
+  },
+  "run_id": "run-a09cb1bcbb7c",
+  "safety_violation": false,
+  "schema_version": "1.0",
+  "score_components": {
+    "availability": 0.9523809523809523,
+    "containment": 1.0,
+    "detection": 1.0,
+    "latency": 0.6457913339442335,
+    "recovery": 0.8757833333333334
+  },
+  "status": "completed",
+  "timeline": {
+    "action_completed_at": "2026-10-10T18:21:03.208790+00:00",
+    "created_at": "2026-10-10T18:20:55.452892+00:00",
+    "injected_at": "2026-10-10T18:20:57.486841+00:00",
+    "recovered_at": "2026-10-10T18:21:31.615669+00:00",
+    "rollback_at": "2026-10-10T18:21:09.265766+00:00"
+  },
+  "watchdog": {
+    "armed": false,
+    "deadline": "2026-10-10T18:21:22.473605+00:00"
+  }
+}
