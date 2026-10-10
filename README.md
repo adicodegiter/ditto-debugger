@@ -146,6 +146,24 @@ Open `http://127.0.0.1:8000`. Discovery reads `deploy/ditto/docker-compose.yml` 
 
 See [deployment instructions](docs/deployment.md) for version and telemetry caveats.
 
+## Dashboard
+
+```bash
+python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+```
+
+Open http://127.0.0.1:8000. Start the workload (`python simulator/fleet_workload.py --duration-seconds 900`) to see live values.
+
+| View | Shows |
+|---|---|
+| **Overview** | Live SLIs for the last 30 s (write success and p95, search success, SSE freshness p95) with 5-minute sparklines, refreshed every 5 s; latest baseline; latest run; agent status |
+| **Architecture** | Dependency map (`ai/dependency_map.json`): Ditto services from compose plus the workbench components. Configured, documented and manual edges are drawn differently, with SLI tags and the SLI request paths |
+| **Experiments** | Capture a baseline (refusals show the reason, e.g. under 120 s); stale baselines are flagged; plan; approve or reject proposals by typing `APPROVE`/`REJECT` with your name and a reason. Approved proposals show copy-ready operator commands |
+| **Runs** | Each run's timeline (inject → kill switch → rollback → recovered), kill-switch charts poll by poll against their limits, recovery check, findings, and dry-run/forced-test labels |
+| **Safety** | Policy limits and allow-list, abort thresholds, watchdog log, audit trail |
+
+The dashboard never executes a fault. Experiments run only from the operator CLI (`python -m safety.cli`), as described in [docs/m4-runbook.md](docs/m4-runbook.md). The read-only data endpoints behind the views are `/api/v1/slis`, `/api/v1/slis/series`, `/api/v1/baselines`, `/api/v1/policy`, `/api/v1/dependency-map` and `/api/v1/watchdog`.
+
 ## Demo Workflow
 
 1. **Start the target and the workload.** Bring up the pinned Ditto stack (see Local Setup), then run the bounded fleet workload. Keep it running in its own terminal for the whole demo:

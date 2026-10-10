@@ -223,6 +223,17 @@ class LocalRepository:
             )
         return baseline
 
+    def list_baselines(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, captured_at, graph_version, telemetry_status, telemetry_json FROM baselines ORDER BY captured_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {"baseline_id": row[0], "captured_at": row[1], "graph_version": row[2], "telemetry_status": row[3], "telemetry": json.loads(row[4])}
+            for row in rows
+        ]
+
     def get_baseline(self, baseline_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute(
