@@ -2,19 +2,21 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = ROOT / "tests" / "fixtures"
 sys.path.insert(0, str(ROOT))
 
-from ai.diagnosis import diagnose, history_outcome
+from ai.diagnosis import classify, classify_freshness, diagnose, history_outcome, load_thresholds
 
 DIAG_SCHEMA = json.loads((ROOT / "schemas" / "diagnosis.schema.json").read_text(encoding="utf-8"))
 RUN_SCHEMA = json.loads((ROOT / "schemas" / "experiment-run.schema.json").read_text(encoding="utf-8"))
-BASELINE = {"slis": {"write": {"error_rate": 0.0, "p95_ms": 35.0}, "search": {"error_rate": 0.0, "p95_ms": 60.0},
+BASELINE = {"slis": {"write": {"error_rate": 0.0, "p95_ms": 36.0}, "search": {"error_rate": 0.0, "p95_ms": 60.0},
                      "freshness": {"error_rate": 0.0, "p95_ms": 40.0}}}
 EXPERIMENT = {"id": "restart-things-search-x", "target_component": "things-search", "action": "restart_container",
               "predicted_slis": {"write": "hold", "search": "fail", "freshness": "hold"}}
@@ -29,6 +31,12 @@ def run(observations, **extra):
             "created_at": "2026-10-10T12:00:00Z", "prediction": {}, "observations": observations, "cleanup_state": "complete"}
     base.update(extra)
     return base
+
+
+def runner_fixture(name):
+    record = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    metadata = {"_fixture", "_source", "_reported_results"}
+    return {key: value for key, value in record.items() if key not in metadata}, record
 
 
 NORMAL = [sli("write", 0.0, 36.0), sli("search", 1.0, 3000.0), sli("freshness", 0.0, 40.0),
@@ -80,36 +88,80 @@ class P4DiagnosisTests(unittest.TestCase):
         self.assertIsNone(history_outcome(d))
 
     def test_slow_and_failed_recovery_flags(self):
-        d = diagnose(EXPERIMENT, run(NORMAL[:3] + [{"kind": "recovery", "recovery_s": 95.0, "recovered": True}]), BASELINE)
+        with tempfile.TemporaryDirectory() as directory:
+            policy_path = Path(directory) / "policy.yaml"
+            policy_path.write_text(
+                "abort_thresholds:\n  write_error_rate: 0.2\n  write_p95_multiplier: 3\n  freshness_p95_seconds: 30\n"
+                "recovery:\n  timeout_seconds: 60\n",
+                encoding="utf-8",
+            )
+            limits = load_thresholds(policy_path)
+
+        slow = run(NORMAL[:3] + [{"kind": "recovery", "recovery_s": 95.0, "recovered": True}])
+        d = diagnose(EXPERIMENT, slow, BASELINE, limits)
         self.assertIn("slow_recovery", d["flags"])
-        d = diagnose(EXPERIMENT, run(NORMAL[:3] + [{"kind": "recovery", "recovered": False}]), BASELINE)
+        self.assertEqual(history_outcome(d), "failure_observed")
+        d = diagnose(EXPERIMENT, run(NORMAL[:3] + [{"kind": "recovery", "recovered": False}]), BASELINE, limits)
         self.assertIn("did_not_recover", d["flags"])
+        self.assertEqual(history_outcome(d), "failure_observed")
+
+    def test_non_forced_abort_counts_as_weak_history_but_remains_inconclusive(self):
+        d = diagnose(EXPERIMENT, run(NORMAL, status="aborted", abort_reason="error_rate_above_configured_limit"), BASELINE)
+
+        self.assertEqual(d["evidence_use"], "inconclusive")
+        self.assertIn("non_forced_abort", d["flags"])
+        self.assertEqual(history_outcome(d), "failure_observed")
 
     def test_wrong_experiment_and_missing_baseline_warn(self):
         d = diagnose(EXPERIMENT, run(NORMAL, experiment_id="other"), None)
         self.assertTrue(any("other" in w for w in d["warnings"]))
         self.assertTrue(any("no baseline" in w for w in d["warnings"]))
 
-    def test_real_runner_record(self):
-        """Run records from safety.runner: per-poll windows with a phase, top-level recovery fields."""
-        window = {"phase": "fault", "source": "sli_jsonl", "write_error_rate": 0.0, "write_p95_ms": 19.6, "write_samples": 38,
-                  "search_error_rate": 1.0, "search_samples": 37, "freshness_p95_seconds": 0.05, "freshness_samples": 37}
-        pre = {**window, "phase": "pre_fault", "search_error_rate": 0.0, "write_p95_ms": 15.0}
-        r = run([pre, window], recovery_verified=True, recovery_time_seconds=4.188)
-        d = diagnose(EXPERIMENT, r, BASELINE)
-        self.check(d, r)
-        self.assertEqual(d["comparison"]["write"]["p95_ms"], 19.6)
-        self.assertEqual(d["comparison"]["search"]["observed"], "fail")
-        self.assertTrue(d["recovered"])
-        self.assertEqual(d["recovery_s"], 4.188)
-        self.assertEqual(d["evidence_use"], "experiment")
+    def test_m4_normal_reconstruction_recovers_but_is_not_scored_without_samples(self):
+        raw, reconstructed = runner_fixture("m4-normal-docs-reconstruction.json")
+        diagnosis = diagnose(EXPERIMENT, raw, BASELINE)
 
-    def test_real_dry_run_is_not_evidence(self):
-        r = run([{"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 15.0, "search_error_rate": 0.0}],
-                dry_run=True, recovery_verified=True, recovery_time_seconds=0.0)
+        self.assertEqual(reconstructed["_source"], "reconstructed from docs/m4-results.md, not a raw record")
+        self.assertEqual(diagnosis["recovery_status"], "recovered")
+        self.assertEqual(diagnosis["recovery_seconds"], 4.2)
+        self.assertEqual(diagnosis["evidence_use"], "inconclusive")
+        self.assertIsNone(history_outcome(diagnosis))
+
+    def test_m4_forced_reconstruction_is_excluded(self):
+        raw, _ = runner_fixture("m4-forced-test-docs-reconstruction.json")
+        diagnosis = diagnose(EXPERIMENT, raw, BASELINE)
+
+        self.assertTrue(diagnosis["kill_switch"]["forced_test"])
+        self.assertEqual(diagnosis["evidence_use"], "kill_switch_test")
+        self.assertEqual(diagnosis["recovery_seconds"], 9.0)
+        self.assertIsNone(history_outcome(diagnosis))
+
+    def test_dry_run_marker_is_not_evidence(self):
+        r, _ = runner_fixture("m4-normal-docs-reconstruction.json")
+        r["dry_run"] = True
         d = diagnose(EXPERIMENT, r, BASELINE)
         self.assertEqual(d["evidence_use"], "dry_run")
         self.assertIsNone(history_outcome(d))
+
+    def test_policy_is_the_only_diagnosis_threshold_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            policy_path = Path(directory) / "policy.yaml"
+            policy_path.write_text(
+                "abort_thresholds:\n  write_error_rate: 0.27\n  write_p95_multiplier: 4\n  freshness_p95_seconds: 45\n"
+                "recovery:\n  timeout_seconds: 60\n",
+                encoding="utf-8",
+            )
+            thresholds = load_thresholds(policy_path)
+
+        self.assertEqual(thresholds, {
+            "fail_error_rate": 0.27,
+            "write_p95_multiplier": 4.0,
+            "freshness_p95_seconds": 45.0,
+            "slow_recovery_s": 60.0,
+        })
+        self.assertEqual(classify(0.28, None, {"error_rate": 0.0}, thresholds), "fail")
+        self.assertEqual(classify(None, 41.0, {"p95_ms": 10.0}, thresholds), "fail")
+        self.assertEqual(classify_freshness(46.0, 40.0, thresholds["freshness_p95_seconds"]), "fail")
 
 
 if __name__ == "__main__":

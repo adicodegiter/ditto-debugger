@@ -29,7 +29,9 @@
     },
     "prediction_accuracy": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
     "recovered": { "type": "boolean" },
+    "recovery_status": { "enum": ["recovered", "did_not_recover", "inconclusive"] },
     "recovery_s": { "type": ["number", "null"] },
+    "recovery_seconds": { "type": ["number", "null"] },
     "kill_switch": {
       "type": "object",
       "properties": { "tripped": { "type": "boolean" }, "forced_test": { "type": "boolean" } }

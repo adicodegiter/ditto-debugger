@@ -221,8 +221,7 @@ class PlanningAgentTests(unittest.TestCase):
             schema = json.loads((ROOT / "schemas" / "experiment.schema.json").read_text(encoding="utf-8"))
             self.assertTrue(result["candidates"])
             self.assertTrue(all(item["approval_required"] for item in result["candidates"]))
-            # mongodb may only ever be proposed for cpu_throttle, and as a high-impact target it
-            # is deferred on a first run.
+            # A global deny overrides action-specific target lists, regardless of history.
             self.assertFalse([item for item in result["candidates"] if item["target_component"] == "mongodb" and item["action"] != "cpu_throttle"])
             self.assertNotIn("mongodb", {item["target_component"] for item in result["candidates"]})
             self.assertEqual(agent.plan(graph, telemetry, baseline), result, "ranking is deterministic")

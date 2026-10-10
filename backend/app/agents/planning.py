@@ -7,33 +7,147 @@ from typing import Any
 
 import yaml
 
-from .discovery import DITTO_ROLES
+from ai.run_record import normalize_run_record
+
 from ..store import LocalRepository
 
 
-# How disruptive each fault is relative to a full stop of the same target (impact term).
-ACTION_SEVERITY = {
-    "restart_container": 1.0,
-    "stop_container": 1.0,
-    "pause_container": 1.0,
-    "cpu_throttle": 0.6,
-    "traffic_burst": 0.4,
+DITTO_ROLES = {
+    "gateway": "Gateway",
+    "things-search": "Things Search",
+    "things": "Things",
+    "policies": "Policies",
+    "connectivity": "Connectivity",
+    "mongodb": "MongoDB",
+    "nginx": "Nginx",
 }
-ACTION_PREFIX = {
-    "restart_container": "restart",
-    "stop_container": "stop",
-    "pause_container": "pause",
-    "cpu_throttle": "throttle",
-    "traffic_burst": "burst",
-}
+
+def load_planning_policy(path: Path) -> dict[str, Any]:
+    with Path(path).open("r", encoding="utf-8") as stream:
+        raw = yaml.safe_load(stream) or {}
+    if not isinstance(raw, dict):
+        raise ValueError("Experiment policy must be a mapping.")
+
+    scope = raw.get("scope", {})
+    if not isinstance(scope, dict):
+        raise ValueError("Experiment policy scope must be a mapping.")
+    targets = scope.get("allowed_targets", [])
+    denied = set(scope.get("denied_targets", []))
+    if not isinstance(targets, list) or any(not isinstance(target, str) for target in targets):
+        raise ValueError("Policy allowed_targets must be a list of exact container names.")
+
+    try:
+        global_limit = int(raw.get("max_duration_seconds", 0))
+        configured_actions = raw.get("actions", {})
+        if not isinstance(configured_actions, dict):
+            raise ValueError
+        actions: dict[str, dict[str, int]] = {}
+        for fault, config in configured_actions.items():
+            if not isinstance(config, dict) or config.get("enabled") is not True:
+                continue
+            maximum = min(global_limit, int(config.get("max_duration_seconds", global_limit)))
+            default = int(config.get("duration_seconds_default", maximum))
+            if maximum > 0 and default > 0:
+                actions[str(fault)] = {
+                    "duration_seconds_default": min(default, maximum),
+                    "max_duration_seconds": maximum,
+                }
+    except (TypeError, ValueError) as error:
+        raise ValueError("Policy action duration limits must be positive integers.") from error
+
+    normalized = dict(raw)
+    normalized["scope"] = {**scope, "allowed_targets": [target for target in targets if target not in denied]}
+    normalized["planning_actions"] = actions
+    return normalized
+
+
+def _graph_impact_context(graph: dict[str, Any]) -> tuple[dict[str, set[str]], dict[str, str]]:
+    nodes = {node["id"] for node in graph.get("nodes", []) if isinstance(node, dict) and isinstance(node.get("id"), str)}
+    dependents = {node: set() for node in nodes}
+    paths_by_target = graph.get("impact_paths", {})
+    summaries: dict[str, str] = {}
+
+    for target in nodes:
+        paths = paths_by_target.get(target, []) if isinstance(paths_by_target, dict) else []
+        if not isinstance(paths, list):
+            paths = []
+        descriptions: list[str] = []
+        sources: set[str] = set()
+        for entry in paths:
+            if not isinstance(entry, dict):
+                continue
+            path = entry.get("path")
+            if not isinstance(path, list) or len(path) < 2 or path[0] != target:
+                continue
+            impacted = entry.get("impacted_component")
+            if isinstance(impacted, str):
+                if len(path) == 2:
+                    dependents[target].add(impacted)
+                descriptions.append(" -> ".join(str(part) for part in path))
+            for edge in entry.get("edges", []):
+                if isinstance(edge, dict):
+                    provenance = edge.get("provenance") or edge.get("provenance_type")
+                    if isinstance(provenance, str) and provenance:
+                        sources.add(provenance)
+
+        if not paths:
+            for edge in graph.get("edges", []):
+                if not isinstance(edge, dict) or not (
+                    edge.get("runtime_observed") is True or edge.get("evidence_type") == "runtime"
+                ):
+                    continue
+                if edge.get("target") == target and edge.get("source") in nodes:
+                    dependent = edge["source"]
+                    dependents[target].add(dependent)
+                    descriptions.append(f"{target} -> {dependent}")
+                    provenance = edge.get("provenance") or edge.get("provenance_type") or "runtime-observed graph edge"
+                    sources.add(str(provenance))
+
+        if dependents[target]:
+            dependent_text = f"{len(dependents[target])} direct graph dependent(s): {', '.join(sorted(dependents[target]))}"
+        else:
+            dependent_text = "no direct dependents recorded in ai/dependency_map.json"
+        path_text = f"; impact paths: {'; '.join(dict.fromkeys(descriptions[:4]))}" if descriptions else ""
+        graph_source = f"ai/dependency_map.json ({', '.join(sorted(sources))})" if sources else "ai/dependency_map.json"
+        source_text = f"; source: {graph_source}"
+        summaries[target] = dependent_text + path_text + source_text
+
+    return dependents, summaries
 
 
 class ExperimentPlanningAgent:
     name = "AI Experiment Planning Agent"
 
+    @staticmethod
+    def should_count_history_record(record: Any) -> bool:
+        if record is None:
+            return False
+        normalized = normalize_run_record(record) if isinstance(record, dict) else record
+        predicted = normalized.get("prediction", {}).get("predicted_slis", {}) if isinstance(normalized, dict) else {}
+        terminal_status = normalized.get("status") if isinstance(normalized, dict) else None
+        adverse_terminal = (
+            terminal_status == "aborted" or normalized.get("recovery_state") == "not_recovered"
+            if isinstance(normalized, dict) else False
+        )
+        return (
+            isinstance(normalized, dict)
+            and not normalized["forced_test"]
+            and not normalized["dry_run"]
+            and normalized.get("source") == "runner_record"
+            and (
+                adverse_terminal
+                or (
+                    terminal_status == "completed"
+                    and normalized.get("cleanup_state") == "complete"
+                    and normalized.get("recovery_state") == "recovered"
+                    and bool(predicted)
+                    and set(predicted).issubset(normalized.get("sli_windows", {}))
+                )
+            )
+        )
+
     def __init__(self, policy_path: Path, repository: LocalRepository, planner_config_path: Path | None = None) -> None:
-        with Path(policy_path).open("r", encoding="utf-8") as stream:
-            self.policy = yaml.safe_load(stream) or {}
+        self.policy = load_planning_policy(policy_path)
         self.repository = repository
         self.planner_config = self._load_planner_config(planner_config_path or Path(policy_path).parent / "planner.yaml")
 
@@ -51,25 +165,25 @@ class ExperimentPlanningAgent:
         allowed_targets = list(scope.get("allowed_targets", []))
         denied_targets = set(scope.get("denied_targets", []))
         risk_scores = self.policy.get("target_risk_scores", {})
-        risk_cap = float(self.policy.get("max_risk_score", 0))
-        max_duration = int(self.policy.get("max_duration_seconds", 0))
+        risk_cap = float(self.policy["max_risk_score"])
+        max_duration = int(self.policy["max_duration_seconds"])
         actions = {name: config for name, config in (self.policy.get("actions") or {}).items() if isinstance(config, dict) and config.get("enabled")}
+        duration_limits = self.policy["planning_actions"]
         nodes = {node["id"]: node for node in graph.get("nodes", [])}
-        max_dependents = max((value.get("configured_dependents", 0) for value in graph.get("criticality", {}).values()), default=0)
+        dependents_by_target, impact_summaries = _graph_impact_context(graph)
+        max_dependents = max((len(items) for items in dependents_by_target.values()), default=0)
         candidates = []
         rejections = []
 
         measured = list(self.planner_config["measured_slis"])
         entries = []
 
-        # Every enabled action x every target the policy allows for it. A denied target is
-        # only considered where an action lists it explicitly (e.g. mongodb for cpu_throttle);
-        # the safety controller re-checks all of this at execution time.
+        # Per-action targets can narrow or extend the scope allowlist, but never override an explicit deny.
         pairs: list[tuple[str, str]] = []
         for action, config in actions.items():
             explicit = config.get("targets")
             for target in (explicit if isinstance(explicit, list) else allowed_targets):
-                if target in denied_targets and not (isinstance(explicit, list) and target in explicit):
+                if target in denied_targets:
                     continue
                 pairs.append((action, str(target)))
 
@@ -83,7 +197,8 @@ class ExperimentPlanningAgent:
                 rejections.append({"target": policy_target, "action": action, "reason": "target is not in the discovered deployment"})
                 continue
             target = node["id"]
-            duration = min(int(config.get("duration_seconds_default", 10)), max_duration)
+            action_limits = duration_limits[action]
+            duration = min(action_limits["duration_seconds_default"], action_limits["max_duration_seconds"], max_duration)
             risk = float(risk_scores.get(policy_target, 1.0))
             if risk > risk_cap or duration < 1:
                 rejections.append({"target": target, "action": action, "reason": "risk or duration exceeds deterministic policy"})
@@ -93,15 +208,10 @@ class ExperimentPlanningAgent:
             if not any(value != "hold" for value in predicted_slis.values()):
                 rejections.append({"target": target, "action": action, "reason": "no predicted effect is observable with the measured SLIs"})
                 continue
-            dependents = int(graph.get("criticality", {}).get(target, {}).get("configured_dependents", 0))
+            dependents = dependents_by_target.get(target, set())
             role = node.get("labels", {}).get("ditto_role", DITTO_ROLES.get(target, target))
-            # The gateway fronts every request and the database backs every service, so both
-            # carry full structural impact whatever the configured-dependents count says.
-            if role == "Gateway" or node.get("kind") == "database":
-                structural = 1.0
-            else:
-                structural = dependents / max_dependents if max_dependents else 0.25
-            impact = round(structural * ACTION_SEVERITY.get(action, 1.0), 4)
+            structural = len(dependents) / max_dependents if max_dependents else 0.0
+            impact = round(structural * float(config.get("impact_multiplier", 1.0)), 4)
             history = self.repository.history_for(target, action)
             novelty = 1.0 / (1.0 + history["trials"])
             uncertainty = 1.0 / ((1.0 + history["trials"]) ** 0.5)
@@ -111,11 +221,11 @@ class ExperimentPlanningAgent:
             metric_refs = sorted({f"metric:{item['metric']}" for item in telemetry.get("observations", []) if item.get("quality") == "fresh"})
             candidate = {
                 "schema_version": "1.0",
-                "id": f"{ACTION_PREFIX.get(action, action)}-{target}-{candidate_id}",
+                "id": f"{action}-{target}-{candidate_id}",
                 "target_component": target,
                 "action": action,
                 "duration_seconds": duration,
-                "hypothesis": self._hypothesis(role, action, target),
+                "hypothesis": self._hypothesis(role, action, target, config),
                 "predicted_impacts": predicted_impacts,
                 "predicted_slis": predicted_slis,
                 "information_gain": novelty,
@@ -126,7 +236,14 @@ class ExperimentPlanningAgent:
                 "score_terms": {"impact": impact, "novelty": novelty, "uncertainty": uncertainty},
                 "ranking_method": "weighted_heuristic_v1",
             }
-            entries.append({"candidate": candidate, "impact": impact, "trials": history["trials"], "role": role, "dependents": dependents})
+            entries.append({
+                "candidate": candidate,
+                "impact": impact,
+                "trials": history["trials"],
+                "role": role,
+                "dependents": len(dependents),
+                "impact_summary": impact_summaries.get(target, "no dependents recorded in ai/dependency_map.json"),
+            })
 
         first_run = bool(entries) and all(entry["trials"] == 0 for entry in entries)
         fallback = False
@@ -174,8 +291,8 @@ class ExperimentPlanningAgent:
     def _reason(entry: dict[str, Any], first_run: bool, fallback: bool) -> str:
         candidate = entry["candidate"]
         hit = [sli for sli, value in candidate["predicted_slis"].items() if value != "hold"]
-        text = (f"{candidate['target_component']} ({entry['role']}): {entry['dependents']} configured dependent(s); "
-                f"predicted to affect {', '.join(hit)}; ")
+        text = (f"{candidate['target_component']} ({entry['role']}): {entry['impact_summary']}; "
+            f"predicted to affect {', '.join(hit)}; ")
         text += "never tested before" if entry["trials"] == 0 else f"tested {entry['trials']} time(s) before"
         if first_run:
             text += ". Chosen as a low-blast-radius first experiment" + (" (lowest impact available)" if fallback else "")
@@ -184,32 +301,30 @@ class ExperimentPlanningAgent:
     def _baseline_is_fresh(self, baseline: dict[str, Any]) -> bool:
         try:
             captured = datetime.fromisoformat(baseline["captured_at"].replace("Z", "+00:00"))
+            max_age = int(self.policy["baseline_max_age_seconds"])
         except (KeyError, ValueError, TypeError):
             return False
         age = (datetime.now(timezone.utc) - captured.astimezone(timezone.utc)).total_seconds()
-        return 0 <= age <= int(self.policy.get("baseline_max_age_seconds", 3600))
+        return 0 <= age <= max_age
 
     def _effects_for(self, action: str, target: str, policy_target: str) -> dict[str, str]:
-        """Predicted SLI effects. Nested by action; a flat per-target entry means restart_container."""
+        """Read action-specific SLI effects, falling back to a target-wide policy effect."""
         effects = self.planner_config["predicted_effects"]
         by_action = effects.get(action)
         if isinstance(by_action, dict) and isinstance(by_action.get(target) or by_action.get(policy_target), dict):
             return by_action.get(target) or by_action.get(policy_target)
         legacy = effects.get(target) or effects.get(policy_target)
-        if action == "restart_container" and isinstance(legacy, dict) and all(isinstance(v, str) for v in legacy.values()):
+        if isinstance(legacy, dict) and all(isinstance(v, str) for v in legacy.values()):
             return legacy
         return {}
 
     @staticmethod
-    def _hypothesis(role: str, action: str = "restart_container", target: str = "") -> str:
-        if action == "pause_container":
-            return f"Freezing {role} (pause) should fail its requests while frozen; it should resume without data loss after unpause."
-        if action == "cpu_throttle":
-            return f"Limiting {target} to a fraction of a CPU should raise latency on the paths that depend on it without failing requests; latency should return to baseline after the limit is removed."
-        if action == "traffic_burst":
-            return "A short burst of extra fleet traffic through the API should raise latency but stay within the abort thresholds; latency should return to baseline after the burst."
-        if action == "stop_container":
-            return f"Stopping {role} should fail its requests for the whole window; health and a functional canary should recover after it starts again."
-        if role == "Gateway":
-            return "A short Gateway restart interrupts the external API; health and a functional canary should recover after the container returns."
-        return f"A short {role} restart may affect its documented responsibility; compare service health and relevant API behavior through recovery."
+    def _hypothesis(role: str, action: str, target: str, config: dict[str, Any]) -> str:
+        configured = config.get("hypothesis")
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+        action_label = action.replace("_", " ")
+        return (
+            f"A bounded {action_label} targeting {target} ({role}) may affect its documented responsibility; "
+            "compare measured SLIs through recovery."
+        )
