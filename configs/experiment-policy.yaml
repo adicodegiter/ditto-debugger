@@ -29,6 +29,10 @@ actions:
     enabled: true
     duration_seconds_default: 60
     cleanup: restart_target
+  pause_container:
+    enabled: true
+    duration_seconds_default: 30
+    cleanup: unpause_target
 # Kill switch (CLAUDE.md "Kill switch thresholds"). Evaluated every poll_interval_seconds
 # while a fault is active, over the last window_seconds of SLI samples. Limits come only
 # from this file; observations can never override them.

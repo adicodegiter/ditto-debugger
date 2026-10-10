@@ -55,9 +55,9 @@ The runner then:
 1. Runs preflight: project, target and running state.
 2. Checks steady state on the last 30 s of real SLIs.
 3. Arms the independent watchdog.
-4. Restarts the target.
+4. Applies the fixed approved action (`restart`, `stop`, or `pause`).
 5. Polls the kill switch every 2 s.
-6. Rolls back (`docker compose start`).
+6. Rolls back (`start` for restart/stop, `unpause` for pause).
 7. Checks recovery: `/health`, an authenticated canary, and the SLIs since rollback back within thresholds.
 8. Saves the run, its findings and `data/experiments/<run_id>.json`.
 
@@ -88,4 +88,4 @@ CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute <new_experiment_id> --
 ## If something goes wrong
 
 - **The runner crashes mid-fault:** the watchdog runs `docker compose start <target>` at the deadline plus 15 s.
-- **Manual recovery:** `docker compose --env-file deploy/image-pins.env -f deploy/ditto/docker-compose.yml start things-search`, then `bash deploy/health_check.sh --wait 300`.
+- **Manual recovery:** restore the action explicitly: `start things-search` after stop/restart or `unpause things-search` after pause, then run `bash deploy/health_check.sh --wait 300`.

@@ -17,6 +17,13 @@ class DockerCommandError(RuntimeError):
 ACTION_COMMANDS = {
     "restart_container": "restart",
     "stop_container": "stop",
+    "pause_container": "pause",
+}
+
+ROLLBACK_COMMANDS = {
+    "restart_container": "start",
+    "stop_container": "start",
+    "pause_container": "unpause",
 }
 
 
@@ -97,10 +104,15 @@ class SubprocessDockerAdapter:
             raise DockerCommandError(f"Unsupported action: {action}")
         self._run(subcommand, target)
 
+    def restore(self, action: str, target: str) -> None:
+        command = ROLLBACK_COMMANDS.get(action)
+        if command is None:
+            raise DockerCommandError(f"Unsupported rollback action: {action}")
+        self._run(command, target)
+
     def start(self, target: str) -> None:
-        # Idempotent: starting a running service is a no-op, so this is safe as the
-        # cleanup for every action.
-        self._run("start", target)
+        """Compatibility helper for callers that only support start-based cleanup."""
+        self.restore("stop_container", target)
 
 
 class DryRunDockerAdapter:
@@ -122,5 +134,11 @@ class DryRunDockerAdapter:
             raise DockerCommandError(f"Unsupported action: {action}")
         self.commands.append([*self.real.base_command(), subcommand, target])
 
+    def restore(self, action: str, target: str) -> None:
+        command = ROLLBACK_COMMANDS.get(action)
+        if command is None:
+            raise DockerCommandError(f"Unsupported rollback action: {action}")
+        self.commands.append([*self.real.base_command(), command, target])
+
     def start(self, target: str) -> None:
-        self.commands.append([*self.real.base_command(), "start", target])
+        self.restore("stop_container", target)

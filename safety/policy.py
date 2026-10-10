@@ -14,7 +14,7 @@ class SafetyViolation(ValueError):
 
 # The only actions the runner can perform. Each maps to one fixed Docker Compose
 # subcommand in safety/runner.py; a policy enabling anything else is rejected.
-SUPPORTED_ACTIONS = frozenset({"restart_container", "stop_container"})
+SUPPORTED_ACTIONS = frozenset({"restart_container", "stop_container", "pause_container"})
 
 
 @dataclass(frozen=True)

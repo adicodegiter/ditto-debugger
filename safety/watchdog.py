@@ -45,10 +45,11 @@ class ProcessWatchdog:
         self.env_file = Path(env_file) if env_file else None
         self.log_path = Path(log_path)
 
-    def arm(self, target: str, deadline_epoch: float) -> subprocess.Popen:
+    def arm(self, target: str, deadline_epoch: float, action: str = "stop_container") -> subprocess.Popen:
         command = [
             sys.executable, "-m", "safety.watchdog",
             "--target", target,
+            "--action", action,
             "--deadline-epoch", f"{deadline_epoch:.3f}",
             "--policy", str(self.policy_path),
             "--compose-file", str(self.compose_file),
@@ -84,8 +85,12 @@ def run_watchdog(args: argparse.Namespace, sleep=time.sleep, clock=time.time, ad
     docker = adapter or SubprocessDockerAdapter(policy.compose_project, args.compose_file, args.env_file)
     for attempt in range(1, args.attempts + 1):
         try:
-            docker.start(args.target)
-            _log(args.log, "fired_cleanup", target=args.target, attempt=attempt, result="started")
+            restore = getattr(docker, "restore", None)
+            if restore is not None:
+                restore(getattr(args, "action", "stop_container"), args.target)
+            else:
+                docker.start(args.target)
+            _log(args.log, "fired_cleanup", target=args.target, action=getattr(args, "action", "stop_container"), attempt=attempt, result="restored")
             return 0
         except DockerCommandError as error:
             _log(args.log, "fired_cleanup", target=args.target, attempt=attempt, result="failed", error=str(error))
@@ -96,6 +101,7 @@ def run_watchdog(args: argparse.Namespace, sleep=time.sleep, clock=time.time, ad
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Independent max-duration watchdog for one chaos experiment.")
     parser.add_argument("--target", required=True, help="allowlisted Compose service to start at the deadline")
+    parser.add_argument("--action", choices=("restart_container", "stop_container", "pause_container"), default="stop_container")
     parser.add_argument("--deadline-epoch", type=float, required=True, help="UNIX time at which to run cleanup")
     parser.add_argument("--policy", type=Path, default=REPO_ROOT / "configs" / "experiment-policy.yaml")
     parser.add_argument("--compose-file", type=Path, default=REPO_ROOT / "deploy" / "ditto" / "docker-compose.yml")

@@ -26,7 +26,7 @@ from safety.observations import SliWindowObservationProvider, unrelated_services
 from safety.policy import AbortThresholds, Policy, SafetyViolation
 from safety.recovery import HttpRecoveryChecker
 from safety.runner import ExperimentRunner, RunnerError
-from safety.scoring import calculate_resilience_score
+from safety.scoring import calculate_resilience_score, derive_score_components
 from safety.watchdog import run_watchdog
 
 HEALTHY = {
@@ -160,6 +160,18 @@ class SafetyTests(unittest.TestCase):
             self.policy.validate_candidate(candidate("mongodb"))
         with self.assertRaises(SafetyViolation):
             self.policy.validate_candidate(candidate(action="run_shell"))
+
+    def test_pause_action_is_allowlisted_and_rolls_back_with_unpause(self):
+        item = candidate(action="pause_container", duration=10)
+        self.policy.validate_candidate(item)
+        docker = FakeDocker()
+        docker.restore = lambda action, target: docker.calls.append(("restore", action, target))
+        run = self.runner(docker, ScriptedObservations(HEALTHY), watchdog=FakeWatchdog()).execute(
+            item, self.approval_for(item), self.baseline
+        )
+        self.assertEqual(run["status"], "completed")
+        self.assertIn(("pause_container", "things-search"), docker.calls)
+        self.assertIn(("restore", "pause_container", "things-search"), docker.calls)
 
     def test_policy_rejects_unsupported_actions_and_disarmed_thresholds(self):
         raw = (ROOT / "configs" / "experiment-policy.yaml").read_text(encoding="utf-8")
@@ -333,13 +345,15 @@ class SafetyTests(unittest.TestCase):
             adapter.preflight("things-search")
             adapter.apply("stop_container", "things-search")
             adapter.start("things-search")
+            adapter.apply("pause_container", "things-search")
+            adapter.restore("pause_container", "things-search")
             with self.assertRaises(DockerCommandError):
                 adapter.apply("run_shell", "things-search")
         for command in calls:
             self.assertEqual(command[:4], ["docker", "compose", "-p", "ditto"])
             self.assertIn("-f", command)
             self.assertIn("--env-file", command)
-        self.assertEqual([command[-2:] for command in calls[-2:]], [["stop", "things-search"], ["start", "things-search"]])
+        self.assertEqual([command[-2:] for command in calls[-4:]], [["stop", "things-search"], ["start", "things-search"], ["pause", "things-search"], ["unpause", "things-search"]])
 
     def test_ps_json_parsing_and_unrelated_health(self):
         states = parse_ps_json('{"Service":"gateway","State":"running","Health":"healthy"}\n{"Service":"things-search","State":"exited","Health":""}\n')
@@ -564,6 +578,26 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(incomplete["status"], "incomplete")
         self.assertIsNone(incomplete["score"])
         self.assertEqual(unsafe["status"], "unsafe")
+
+    def test_completed_run_derives_all_resilience_score_components(self):
+        run = {
+            "status": "completed",
+            "baseline_write_p95_ms": 50.0,
+            "recovery_verified": True,
+            "recovery_time_seconds": 9.0,
+            "observations": [{
+                "phase": "fault",
+                "write_error_rate": 0.0,
+                "write_p95_ms": 40.0,
+                "unrelated_component_healthy": True,
+            }],
+        }
+        components = derive_score_components(run, recovery_budget_seconds=180)
+        self.assertEqual(set(components), {"availability", "latency", "recovery", "containment", "detection"})
+        run["score_components"] = components
+        score = calculate_resilience_score(run)
+        self.assertEqual(score["status"], "complete")
+        self.assertGreater(score["score"], 90)
 
     def test_non_finite_risk_and_score_values_are_rejected(self):
         unsafe = candidate()

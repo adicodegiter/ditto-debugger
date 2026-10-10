@@ -11,7 +11,7 @@ from typing import Any, Callable, Protocol
 
 from .kill_switch import KillSwitch, baseline_write_p95
 from .policy import Policy, SafetyViolation
-from .scoring import calculate_resilience_score
+from .scoring import calculate_resilience_score, derive_score_components
 
 
 class RunnerError(RuntimeError):
@@ -21,7 +21,7 @@ class RunnerError(RuntimeError):
 class DockerAdapter(Protocol):
     def preflight(self, target: str) -> None: ...
     def apply(self, action: str, target: str) -> None: ...
-    def start(self, target: str) -> None: ...
+    def restore(self, action: str, target: str) -> None: ...
 
 
 class ObservationProvider(Protocol):
@@ -33,7 +33,7 @@ class RecoveryChecker(Protocol):
 
 
 class Watchdog(Protocol):
-    def arm(self, target: str, deadline_epoch: float) -> Any: ...
+    def arm(self, target: str, deadline_epoch: float, action: str = "stop_container") -> Any: ...
     def disarm(self, handle: Any) -> None: ...
 
 
@@ -109,6 +109,7 @@ class ExperimentRunner:
         finally:
             with self._lock:
                 self._active = False
+        run["score_components"] = derive_score_components(run, self.policy.recovery_timeout_seconds)
         run["resilience_score"] = calculate_resilience_score(run)
         return run
 
@@ -126,6 +127,7 @@ class ExperimentRunner:
             "status": "running",
             "created_at": timeline["created_at"],
             "prediction": {
+                "action": candidate["action"],
                 "predicted_impacts": candidate["predicted_impacts"],
                 **({"predicted_slis": candidate["predicted_slis"]} if candidate.get("predicted_slis") else {}),
             },
@@ -171,7 +173,10 @@ class ExperimentRunner:
 
             # Arm the independent watchdog before touching the target.
             deadline_epoch = self.wall_clock() + duration + self.policy.watchdog_grace_seconds
-            watchdog_handle = self.watchdog.arm(target, deadline_epoch)
+            try:
+                watchdog_handle = self.watchdog.arm(target, deadline_epoch, action)
+            except TypeError:
+                watchdog_handle = self.watchdog.arm(target, deadline_epoch)
             run["watchdog"] = {"armed": True, "deadline": _iso(deadline_epoch)}
 
             # Mark the fault as injected *before* the command runs: `docker compose restart`
@@ -227,7 +232,11 @@ class ExperimentRunner:
                 run["watchdog"]["armed"] = False
             return True
         try:
-            self.docker.start(target)
+            restore = getattr(self.docker, "restore", None)
+            if restore is not None:
+                restore(run["prediction"].get("action", "stop_container"), target)
+            else:
+                self.docker.start(target)
         except Exception as error:  # noqa: BLE001
             run["cleanup_state"] = "failed"
             run["status"] = "failed"
