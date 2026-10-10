@@ -1,0 +1,502 @@
+{
+  "schema_version": "1.0",
+  "graph_version": "eb1685d17ee80fb3",
+  "sources": [
+    "deploy/ditto/docker-compose.yml",
+    "deploy/image-pins.env"
+  ],
+  "sli_paths": {
+    "write": {
+      "path": [
+        "nginx",
+        "gateway",
+        "policies",
+        "things",
+        "mongodb"
+      ],
+      "measured_by": "simulator/fleet_workload.py (PUT /api/2/things/{id}/features/telemetry/properties)",
+      "provenance_type": "documented",
+      "provenance": "Ditto architecture overview: request routing"
+    },
+    "search": {
+      "path": [
+        "nginx",
+        "gateway",
+        "policies",
+        "things-search",
+        "mongodb"
+      ],
+      "measured_by": "simulator/fleet_workload.py (GET /api/2/search/things)",
+      "provenance_type": "documented",
+      "provenance": "Ditto architecture overview: request routing"
+    },
+    "freshness": {
+      "path": [
+        "nginx",
+        "gateway",
+        "policies",
+        "things",
+        "mongodb"
+      ],
+      "measured_by": "simulator/fleet_workload.py (telemetry timestamp read back; SSE when enabled)",
+      "provenance_type": "documented",
+      "provenance": "Ditto architecture overview: request routing"
+    }
+  },
+  "nodes": [
+    {
+      "id": "connectivity",
+      "kind": "ditto_service",
+      "image": "docker.io/eclipse/ditto-connectivity:3.9.8",
+      "ports": [],
+      "health": "http://connectivity:7626/alive",
+      "slis": [],
+      "provenance_type": "configured",
+      "provenance": "compose:connectivity"
+    },
+    {
+      "id": "ditto-ui",
+      "kind": "ditto_service",
+      "image": "docker.io/eclipse/ditto-ui:3.9.8",
+      "ports": [],
+      "health": null,
+      "slis": [],
+      "provenance_type": "configured",
+      "provenance": "compose:ditto-ui"
+    },
+    {
+      "id": "gateway",
+      "kind": "ditto_service",
+      "image": "docker.io/eclipse/ditto-gateway:3.9.8",
+      "ports": [
+        "127.0.0.1:8081->8080/tcp"
+      ],
+      "health": "http://gateway:7626/alive",
+      "slis": [
+        "freshness",
+        "search",
+        "write"
+      ],
+      "provenance_type": "configured",
+      "provenance": "compose:gateway"
+    },
+    {
+      "id": "mongodb",
+      "kind": "database",
+      "image": "docker.io/mongo:7.0.14",
+      "ports": [
+        "127.0.0.1:27017->27017/tcp"
+      ],
+      "health": null,
+      "slis": [
+        "freshness",
+        "search",
+        "write"
+      ],
+      "provenance_type": "configured",
+      "provenance": "compose:mongodb"
+    },
+    {
+      "id": "nginx",
+      "kind": "proxy",
+      "image": "docker.io/nginx:1.27.2-alpine",
+      "ports": [
+        "127.0.0.1:8080->80/tcp"
+      ],
+      "health": null,
+      "slis": [
+        "freshness",
+        "search",
+        "write"
+      ],
+      "provenance_type": "configured",
+      "provenance": "compose:nginx"
+    },
+    {
+      "id": "policies",
+      "kind": "ditto_service",
+      "image": "docker.io/eclipse/ditto-policies:3.9.8",
+      "ports": [],
+      "health": "http://policies:7626/alive",
+      "slis": [
+        "freshness",
+        "search",
+        "write"
+      ],
+      "provenance_type": "configured",
+      "provenance": "compose:policies"
+    },
+    {
+      "id": "things",
+      "kind": "ditto_service",
+      "image": "docker.io/eclipse/ditto-things:3.9.8",
+      "ports": [],
+      "health": "http://things:7626/alive",
+      "slis": [
+        "freshness",
+        "write"
+      ],
+      "provenance_type": "configured",
+      "provenance": "compose:things"
+    },
+    {
+      "id": "things-search",
+      "kind": "ditto_service",
+      "image": "docker.io/eclipse/ditto-things-search:3.9.8",
+      "ports": [],
+      "health": "http://things-search:7626/alive",
+      "slis": [
+        "search"
+      ],
+      "provenance_type": "configured",
+      "provenance": "compose:things-search"
+    },
+    {
+      "id": "fleet-workload",
+      "kind": "workbench",
+      "name": "Fleet workload + SLI probes",
+      "module": "simulator/fleet_workload.py",
+      "purpose": "Writes vehicle telemetry and probes the write, search and freshness SLIs into data/metrics/*.jsonl",
+      "slis": [],
+      "provenance_type": "manual",
+      "provenance": "manual: workbench component"
+    },
+    {
+      "id": "workbench-api",
+      "kind": "workbench",
+      "name": "Workbench API + agents",
+      "module": "backend/app",
+      "purpose": "Discovery, mapping, baseline, planning, approval records (never executes faults)",
+      "slis": [],
+      "provenance_type": "manual",
+      "provenance": "manual: workbench component"
+    },
+    {
+      "id": "operator-cli",
+      "kind": "control_plane",
+      "name": "Operator CLI + runner + kill switch",
+      "module": "safety/",
+      "purpose": "Runs approved experiments with steady-state check, live kill switch, rollback and recovery check",
+      "slis": [],
+      "provenance_type": "manual",
+      "provenance": "manual: workbench component"
+    },
+    {
+      "id": "watchdog",
+      "kind": "control_plane",
+      "name": "Independent watchdog",
+      "module": "safety/watchdog.py",
+      "purpose": "Restarts the target at the deadline even if the runner dies",
+      "slis": [],
+      "provenance_type": "manual",
+      "provenance": "manual: workbench component"
+    },
+    {
+      "id": "docker-compose",
+      "kind": "platform",
+      "name": "Docker Compose (project 'ditto')",
+      "module": "deploy/ditto",
+      "purpose": "Container lifecycle for the pinned stack; the only fault-injection surface",
+      "slis": [],
+      "provenance_type": "manual",
+      "provenance": "manual: workbench component"
+    },
+    {
+      "id": "data-metrics",
+      "kind": "storage",
+      "name": "data/metrics/*.jsonl",
+      "slis": [],
+      "provenance_type": "manual",
+      "provenance": "manual: workbench component"
+    }
+  ],
+  "edges": [
+    {
+      "source": "connectivity",
+      "target": "mongodb",
+      "relation": "configured_database_host",
+      "provenance_type": "configured",
+      "provenance": "compose:services.connectivity.environment.MONGO_DB_HOSTNAME",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "connectivity",
+      "target": "mongodb",
+      "relation": "documented_persistence",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "connectivity",
+      "target": "policies",
+      "relation": "compose_depends_on",
+      "provenance_type": "configured",
+      "provenance": "compose:services.connectivity.depends_on",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "gateway",
+      "target": "connectivity",
+      "relation": "pekko_cluster_communication",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "bidirectional",
+      "runtime_observed": false
+    },
+    {
+      "source": "gateway",
+      "target": "policies",
+      "relation": "compose_depends_on",
+      "provenance_type": "configured",
+      "provenance": "compose:services.gateway.depends_on",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "gateway",
+      "target": "policies",
+      "relation": "pekko_cluster_communication",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "bidirectional",
+      "runtime_observed": false
+    },
+    {
+      "source": "gateway",
+      "target": "things",
+      "relation": "pekko_cluster_communication",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "bidirectional",
+      "runtime_observed": false
+    },
+    {
+      "source": "gateway",
+      "target": "things-search",
+      "relation": "pekko_cluster_communication",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "bidirectional",
+      "runtime_observed": false
+    },
+    {
+      "source": "nginx",
+      "target": "gateway",
+      "relation": "compose_depends_on",
+      "provenance_type": "configured",
+      "provenance": "compose:services.nginx.depends_on",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "policies",
+      "target": "mongodb",
+      "relation": "configured_database_host",
+      "provenance_type": "configured",
+      "provenance": "compose:services.policies.environment.MONGO_DB_HOSTNAME",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "policies",
+      "target": "mongodb",
+      "relation": "documented_persistence",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "things",
+      "target": "mongodb",
+      "relation": "configured_database_host",
+      "provenance_type": "configured",
+      "provenance": "compose:services.things.environment.MONGO_DB_HOSTNAME",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "things",
+      "target": "mongodb",
+      "relation": "documented_persistence",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "things",
+      "target": "policies",
+      "relation": "compose_depends_on",
+      "provenance_type": "configured",
+      "provenance": "compose:services.things.depends_on",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "things",
+      "target": "things-search",
+      "relation": "documented_search_projection",
+      "provenance_type": "documented",
+      "provenance": "project_plan:p2_topology",
+      "impact_direction": "forward",
+      "runtime_observed": false
+    },
+    {
+      "source": "things-search",
+      "target": "mongodb",
+      "relation": "configured_database_host",
+      "provenance_type": "configured",
+      "provenance": "compose:services.things-search.environment.MONGO_DB_HOSTNAME",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "things-search",
+      "target": "mongodb",
+      "relation": "documented_persistence",
+      "provenance_type": "documented",
+      "provenance": "ditto_docs:architecture-overview",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "things-search",
+      "target": "policies",
+      "relation": "compose_depends_on",
+      "provenance_type": "configured",
+      "provenance": "compose:services.things-search.depends_on",
+      "impact_direction": "reverse",
+      "runtime_observed": false
+    },
+    {
+      "source": "fleet-workload",
+      "target": "nginx",
+      "relation": "calls",
+      "protocol": "http",
+      "purpose": "telemetry writes (write SLI)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "fleet-workload",
+      "target": "nginx",
+      "relation": "calls",
+      "protocol": "http",
+      "purpose": "fleet search queries (search SLI)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "fleet-workload",
+      "target": "nginx",
+      "relation": "calls",
+      "protocol": "http/sse",
+      "purpose": "read back telemetry timestamps (freshness SLI)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "workbench-api",
+      "target": "data-metrics",
+      "relation": "calls",
+      "protocol": "file",
+      "purpose": "baseline from SLI samples",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "fleet-workload",
+      "target": "data-metrics",
+      "relation": "calls",
+      "protocol": "file",
+      "purpose": "append SLI samples (JSON Lines)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "operator-cli",
+      "target": "data-metrics",
+      "relation": "calls",
+      "protocol": "file",
+      "purpose": "kill-switch observations (last 30 s window)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "operator-cli",
+      "target": "docker-compose",
+      "relation": "calls",
+      "protocol": "cli",
+      "purpose": "preflight, fixed fault action, rollback (allow-listed targets only)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "operator-cli",
+      "target": "watchdog",
+      "relation": "calls",
+      "protocol": "process",
+      "purpose": "arm before injection, disarm after clean rollback",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "watchdog",
+      "target": "docker-compose",
+      "relation": "calls",
+      "protocol": "cli",
+      "purpose": "deadline cleanup: start target",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "operator-cli",
+      "target": "nginx",
+      "relation": "calls",
+      "protocol": "http",
+      "purpose": "recovery check: /health + authenticated canary",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "docker-compose",
+      "target": "things-search",
+      "relation": "calls",
+      "protocol": "cli",
+      "purpose": "restart/stop target (experiments)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    },
+    {
+      "source": "docker-compose",
+      "target": "gateway",
+      "relation": "calls",
+      "protocol": "cli",
+      "purpose": "restart/stop target (experiments)",
+      "provenance_type": "manual",
+      "provenance": "manual: workbench design",
+      "runtime_observed": false
+    }
+  ],
+  "notes": [
+    "Ditto edges are static (configured from compose or documented by Ditto); none is runtime-observed yet.",
+    "Docker network membership alone is not treated as an application call.",
+    "manual = workbench components and calls written by this team, not discovered from a manifest."
+  ]
+}

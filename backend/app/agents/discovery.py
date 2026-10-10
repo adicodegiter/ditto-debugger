@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
+import re
+
 import yaml
 
 
@@ -136,6 +138,45 @@ def _port_record(container_port: Any, protocol: Any = "tcp", host_ip: Any = None
     }
 
 
+_VARIABLE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?:(?P<op>:?-)(?P<default>[^}]*))?\}|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)")
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """Parse a Compose --env-file (KEY=VALUE lines). Never executes anything."""
+    values: dict[str, str] = {}
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return values
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def interpolate(value: str, variables: dict[str, str]) -> tuple[str, list[str]]:
+    """Resolve Compose ${VAR}, ${VAR:-default}, ${VAR-default} and $VAR; return (value, unresolved names)."""
+    unresolved: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group("name") or match.group("bare")
+        op = match.group("op")
+        current = variables.get(name)
+        if op == ":-" and not current:
+            return match.group("default") or ""
+        if op == "-" and current is None:
+            return match.group("default") or ""
+        if current is None:
+            unresolved.append(name)
+            return match.group(0)
+        return current
+
+    return _VARIABLE.sub(replace, value), unresolved
+
+
 def _compose_port(value: Any) -> dict[str, Any] | None:
     if isinstance(value, int):
         return _port_record(value)
@@ -212,9 +253,15 @@ class DittoDiscoveryAgent:
 
     name = "Ditto Discovery Agent"
 
-    def __init__(self, compose_file: Path, kubernetes_manifests: Iterable[Path] = ()) -> None:
+    def __init__(self, compose_file: Path, kubernetes_manifests: Iterable[Path] = (), env_files: Iterable[Path] = ()) -> None:
         self.compose_file = Path(compose_file)
         self.kubernetes_manifests = tuple(Path(path) for path in kubernetes_manifests)
+        # Compose --env-file inputs (e.g. deploy/image-pins.env). Values here override the
+        # ${VAR:-default} fallbacks written in the compose file, exactly like `docker compose`.
+        self.env_files = tuple(Path(path) for path in env_files)
+        self.variables: dict[str, str] = {}
+        for env_file in self.env_files:
+            self.variables.update(read_env_file(env_file))
 
     def discover(self) -> DiscoveryReport:
         paths = ([self.compose_file] if self.compose_file.is_file() else []) + [
@@ -292,13 +339,27 @@ class DittoDiscoveryAgent:
                 warnings.append(f"Ignored Compose service {name!s}: service definition is not a mapping.")
                 continue
             service_id = str(name)
-            image = definition.get("image") if isinstance(definition.get("image"), str) else None
+            declared_image = definition.get("image") if isinstance(definition.get("image"), str) else None
+            image = declared_image
+            if declared_image:
+                image, missing = interpolate(declared_image, self.variables)
+                for variable in missing:
+                    warnings.append(f"Compose service {service_id}: image variable {variable} is not set and has no default.")
             kind, role = _service_kind(service_id, image)
-            ports = tuple(record for item in definition.get("ports", []) if (record := _compose_port(item)) is not None)
+            port_values = []
+            for item in definition.get("ports", []):
+                if isinstance(item, str):
+                    item, missing = interpolate(item, self.variables)
+                    for variable in missing:
+                        warnings.append(f"Compose service {service_id}: port variable {variable} is not set and has no default.")
+                port_values.append(item)
+            ports = tuple(record for item in port_values if (record := _compose_port(item)) is not None)
             health_url, health_checks = _health_metadata(service_id, definition)
             labels = {"manifest_kind": "compose"}
             if image:
                 labels["image"] = image
+            if declared_image and declared_image != image:
+                labels["image_declared"] = declared_image
             if role:
                 labels["ditto_role"] = role
             metrics_url = f"http://{service_id}:9095/" if kind == "ditto_service" else None

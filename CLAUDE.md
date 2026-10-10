@@ -37,7 +37,7 @@ ranked findings report with fixes and a resilience score.
 | 2. Workload & Measurement | Three SLIs, JSON Lines rule, bounded workload | `simulator/`, `monitor/`, `data/metrics/` | Report a healthy baseline when samples are missing |
 | 3. Planner & Analyst (AI) | Existing planner, history, report requirement | `backend/app/agents/planning.py`, `ai/` report code | Execute anything; output must be schema-checked and evidence-linked |
 
-**Control plane (deterministic, NOT an agent):** `chaos/` (runner, kill switch, rollback,
+**Control plane (deterministic, NOT an agent):** `safety/` (runner, kill switch, rollback,
 recovery check), `configs/experiment-policy.yaml` (allowlist, fault catalog, thresholds),
 `deploy/` (pinned Compose, image pins, health check, reset).
 
@@ -83,7 +83,7 @@ backend/app/
   agents/discovery.py, mapping.py, planning.py     # Agents 1 and 3
 simulator/          # bootstrap + fleet workload (Agent 2)
 monitor/            # write, search, freshness probes; SLI math (Agent 2)
-chaos/              # runner, kill switch, rollback, recovery (control plane)
+safety/             # runner, kill switch, watchdog, rollback, recovery, operator CLI (control plane)
 ai/                 # dependency_map.json, diagnosis + report code
 configs/experiment-policy.yaml
 deploy/             # image-pins.env, compose file, health_check, reset
@@ -104,26 +104,25 @@ TOOLS.md            # tools, libraries, AI models (for the team form)
 | P4 | Planner + analyst (Agent 3), diagnosis, findings report |
 | P5 | Control plane: policy, runner, kill-switch wiring, rollback, resilience score |
 
-## Current status (branch `feat/fleet-workload-sli-killswitch`, not yet pushed)
+## Current status (`main`, 2026-10-10 evening)
 | Item | Status |
 |---|---|
-| Local-only default (`DITTO_BASE_URL`) | Built |
-| Image pins (`deploy/image-pins.env`, Ditto 3.9.8) | Built: pinned Compose in `deploy/ditto/`, stack healthy on the Windows host (branch `feat/m0-deploy-pins`) |
-| Secrets from env | Built |
-| Write + search SLIs | Built, tested against a fake Ditto only |
-| Freshness SLI | Poll-based proxy; SSE pending |
-| Kill switch | Pure logic, tested; not wired to a runner |
-| Max duration check | Built; rollback pending |
-| Container restart experiment | Pending (M4) |
-| Diagnosis, resilience score, evidence report | Pending (planner exists) |
-| `health_check`, `reset`, `simulator/smoke_test.py` (all with `--help`) | Built, verified on the live stack (smoke test 5/5) |
-| `dependency_map.json` | Pending |
-| Tests | 28 run; only `test_api` errors (missing `fastapi`; add to requirements) |
+| M0: pinned Ditto 3.9.8 (`deploy/image-pins.env`, `deploy/ditto/`), loopback-only ports | Done; `health_check.sh` and `smoke_test.py` (own twin `bosch.fleet:smoke-test`) pass |
+| M1: discovery + graph + `ai/dependency_map.json` + `docs/dependency-map.md` | Done (`python -m ai.dependency_map`); image/port variables resolved from the pins |
+| M2: workload + baseline from SLI samples (`POST /api/v1/baselines`, `safety.cli baseline`) | Works live. SSE freshness, concurrent probes and run-scoped 120 s baselines are in progress (PR #8 / follow-up) |
+| M3: safety gate | Done: live kill switch (2 s polls, policy-only limits), watchdog, fixed actions, typed approvals, API `execute` always 503, dry run |
+| M4: real `things-search` restart + forced kill-switch abort | Done; evidence in `docs/m4-results.md` |
+| M5: 3+ fault types, predicted vs observed | Pending. Only restart/stop exist; P4 diagnosis (PR #5) must read real run records |
+| M6: resilience score, findings report, demo | Pending. `safety/scoring.py` exists but nothing sets `score_components` yet |
+| Tests | 72 passing (`python -m unittest discover -s tests`) |
 
-**Verified on the live 3.9.8 stack (2026-10-10, `simulator/smoke_test.py`):** the Ditto v2 API
-paths (`/api/2/policies`, `/api/2/things`, `/api/2/search/things`), the policy body with the
-`nginx:ditto` subject, and the `mongo:7.0.14` tag. Use `127.0.0.1` rather than `localhost`
-in `DITTO_BASE_URL`: on Windows `localhost` tries IPv6 `::1` first (+2 s per connection).
+**How to run an experiment:** `docs/m4-runbook.md` (`safety.cli baseline → plan → approve → execute [--dry-run|--forced-test]`).
+Only the operator CLI executes; it needs `CHAOS_EXECUTION_ENABLED=true` and an approval typed by a human.
+
+**Verified on the live 3.9.8 stack:** the Ditto v2 API paths (`/api/2/policies`, `/api/2/things`,
+`/api/2/search/things`), the policy body with the `nginx:ditto` subject, and the `mongo:7.0.14` tag.
+Use `127.0.0.1` rather than `localhost` in `DITTO_BASE_URL`: on Windows `localhost` tries IPv6 `::1`
+first (+2 s per connection).
 
 ## Milestones
 | Milestone | Content | When |

@@ -24,7 +24,8 @@ class AgentOrchestrator:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.discovery_agent = DittoDiscoveryAgent(settings.compose_file, settings.kubernetes_manifests)
+        pins = (settings.image_pins_file,) if settings.image_pins_file.is_file() else ()
+        self.discovery_agent = DittoDiscoveryAgent(settings.compose_file, settings.kubernetes_manifests, env_files=pins)
         self.mapping_agent = ArchitectureMapperAgent()
         self.telemetry_agent = TelemetryObservabilityAgent(settings.prometheus_url)
         self.repository = LocalRepository(settings.database_path)
