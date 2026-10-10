@@ -15,9 +15,11 @@ def generate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     # Real runner windows use write_error_rate / search_error_rate; older records use error_rate.
     error_keys = ("error_rate", "write_error_rate", "search_error_rate")
+    # Real windows carry a phase; only fault-phase windows count. Older records have no phase.
     failed_samples = sum(
         1 for observation in observations
-        if any(float(observation.get(key, 0) or 0) > 0 for key in error_keys)
+        if (observation.get("phase", "fault") == "fault"
+            and any(float(observation.get(key, 0) or 0) > 0 for key in error_keys))
         or observation.get("telemetry_available") is False
     )
     if failed_samples:

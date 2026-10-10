@@ -19,6 +19,12 @@ class RankingTests(unittest.TestCase):
         self.assertNotIn("r1-absorbed", [f["id"] for f in findings])
         self.assertIn("r1-availability", [f["id"] for f in findings])
 
+    def test_errors_outside_the_fault_phase_do_not_create_a_degradation_finding(self):
+        quiet = run("q", observations=[{"phase": "pre_fault", "write_error_rate": 0.1, "search_error_rate": 0.0},
+                                       {"phase": "fault", "write_error_rate": 0.0, "search_error_rate": 0.0},
+                                       {"phase": "recovered", "write_error_rate": 0.2, "search_error_rate": 0.0}])
+        self.assertEqual([f["id"] for f in generate_findings(quiet)], ["q-absorbed"])
+
     def test_ranks_by_severity_then_confidence_and_numbers_from_run(self):
         runs = [run("r1"), run("r2", recovery_verified=False)]
         findings = generate_findings(runs[0]) + generate_findings(runs[1])
