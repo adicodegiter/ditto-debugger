@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import sys
 import time
@@ -83,7 +84,7 @@ def _run_search_probe(session: requests.Session, vehicle_id: str, *, api_base: s
     started = time.perf_counter()
     search = f'and(eq(thingId,"{vehicle_id}"),gt(features/telemetry/properties/speed_kph,0))'
     try:
-        response = session.get(f"{api_base}/search/things", params={"filter": search}, timeout=10)
+        response = session.get(f"{api_base}/search/things", params={"filter": search}, timeout=3)
     except requests.RequestException as error:
         return _failed_probe("search", vehicle_id, started, error, run_id)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -170,6 +171,7 @@ def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, dur
     subscriber = FreshnessSseSubscriber(api_base, vehicle_ids, AUTH) if freshness_method == "sse" else None
     if subscriber is not None:
         subscriber.start()
+        subscriber.wait_until_ready(timeout=10)
 
     try:
         while time.monotonic() < deadline:
@@ -177,18 +179,43 @@ def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, dur
                 if time.monotonic() >= deadline:
                     break
                 value = int((time.monotonic() * 1000) % 100)
-                record = _run_write_probe(session, vehicle_id, value=value, api_base=api_base, run_id=run_id)
-                append_jsonl(metrics_path / "write.jsonl", record)
-
-                search_record = _run_search_probe(session, vehicle_id, api_base=api_base, run_id=run_id)
-                append_jsonl(metrics_path / "search.jsonl", search_record)
-
-                freshness_record = (
-                    _run_sse_freshness_probe(subscriber, vehicle_id, run_id)
-                    if subscriber is not None
-                    else _run_freshness_probe(session, vehicle_id, api_base=api_base, run_id=run_id)
-                )
-                append_jsonl(metrics_path / "freshness.jsonl", freshness_record)
+                probe_sessions = [requests.Session() for _ in range(3)]
+                for probe_session in probe_sessions:
+                    probe_session.auth = AUTH
+                try:
+                    with ThreadPoolExecutor(max_workers=3) as executor:
+                        write_future = executor.submit(
+                            _run_write_probe,
+                            probe_sessions[0],
+                            vehicle_id,
+                            value=value,
+                            api_base=api_base,
+                            run_id=run_id,
+                        )
+                        search_future = executor.submit(
+                            _run_search_probe,
+                            probe_sessions[1],
+                            vehicle_id,
+                            api_base=api_base,
+                            run_id=run_id,
+                        )
+                        freshness_future = (
+                            executor.submit(_run_sse_freshness_probe, subscriber, vehicle_id, run_id)
+                            if subscriber is not None
+                            else executor.submit(
+                                _run_freshness_probe,
+                                probe_sessions[2],
+                                vehicle_id,
+                                api_base=api_base,
+                                run_id=run_id,
+                            )
+                        )
+                        append_jsonl(metrics_path / "write.jsonl", write_future.result())
+                        append_jsonl(metrics_path / "search.jsonl", search_future.result())
+                        append_jsonl(metrics_path / "freshness.jsonl", freshness_future.result())
+                finally:
+                    for probe_session in probe_sessions:
+                        probe_session.close()
 
                 time.sleep(max(0.0, 1.0 / max(rate_per_second, 0.1)))
     finally:

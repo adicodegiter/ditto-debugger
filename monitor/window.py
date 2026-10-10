@@ -75,6 +75,35 @@ def window_stats(
 
 def baseline_from_metrics(metrics_dir: Path | str, *, thresholds_file: Path | str | None = None) -> dict[str, Any]:
     metrics_path = Path(metrics_dir)
+    artifacts = sorted(
+        (metrics_path.parent / "baselines").glob("baseline-*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for artifact_path in artifacts:
+        try:
+            artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        captured_at = _parse_timestamp(artifact.get("captured_at"))
+        summary = artifact.get("summary")
+        if (
+            not isinstance(summary, dict)
+            or captured_at is None
+            or (datetime.now(timezone.utc) - captured_at).total_seconds() > 3600
+        ):
+            continue
+        status = "available" if artifact.get("status") == "healthy" else "unavailable"
+        return {
+            "baseline_id": artifact.get("baseline_id") or f"client-baseline-{captured_at.strftime('%Y%m%d%H%M%S')}",
+            "captured_at": artifact.get("captured_at"),
+            "status": status,
+            "coverage": 1.0 if status == "available" else 0.0,
+            "telemetry": summary,
+            "source": artifact.get("source", "client-sli-jsonl"),
+            "run_id": artifact.get("run_id"),
+        }
+    metrics_path = Path(metrics_dir)
     artifacts = list((metrics_path.parent / "baselines").glob("baseline-*.json"))
     if artifacts:
         latest = max(artifacts, key=lambda path: path.stat().st_mtime)

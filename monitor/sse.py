@@ -78,6 +78,7 @@ class FreshnessSseSubscriber:
         self.vehicle_ids = set(vehicle_ids)
         self.auth = auth
         self._latest: dict[str, str] = {}
+        self._latest_freshness: dict[str, float] = {}
         self._error: str | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -91,10 +92,26 @@ class FreshnessSseSubscriber:
         if self._thread is not None:
             self._thread.join(timeout=2)
 
+    def wait_until_ready(self, timeout: float = 10.0) -> bool:
+        deadline = datetime.now(timezone.utc).timestamp() + timeout
+        while datetime.now(timezone.utc).timestamp() < deadline:
+            if self.vehicle_ids.issubset(self._latest):
+                return True
+            if self._stop.wait(0.1):
+                return False
+        return self.vehicle_ids.issubset(self._latest)
+
     def sample(self, vehicle_id: str) -> dict[str, Any]:
         observed_at = self._latest.get(vehicle_id)
         if observed_at is None:
             return {"success": False, "error": self._error or "SSENoTelemetryEvent"}
+        freshness = self._latest_freshness.get(vehicle_id)
+        if freshness is not None:
+            return {
+                "success": True,
+                "observed_at": observed_at,
+                "freshness_seconds": freshness,
+            }
         try:
             parsed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
             if parsed.tzinfo is None:
@@ -121,7 +138,7 @@ class FreshnessSseSubscriber:
                     headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
                     auth=self.auth,
                     stream=True,
-                    timeout=(10, 2),
+                    timeout=(10, 30),
                 ) as response:
                     response.raise_for_status()
                     self._error = None
@@ -129,7 +146,19 @@ class FreshnessSseSubscriber:
                         vehicle_id = _find_thing_id(event)
                         last_seen = _find_last_seen(event)
                         if vehicle_id in self.vehicle_ids and last_seen:
+                            received_at = datetime.now(timezone.utc)
+                            try:
+                                telemetry_at = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+                                if telemetry_at.tzinfo is None:
+                                    telemetry_at = telemetry_at.replace(tzinfo=timezone.utc)
+                                freshness = max(
+                                    0.0,
+                                    (received_at - telemetry_at.astimezone(timezone.utc)).total_seconds(),
+                                )
+                            except ValueError:
+                                continue
                             self._latest[vehicle_id] = last_seen
+                            self._latest_freshness[vehicle_id] = freshness
                         if self._stop.is_set():
                             return
             except (requests.RequestException, OSError) as error:
