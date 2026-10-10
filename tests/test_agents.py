@@ -19,9 +19,41 @@ from app.agents.planning import ExperimentPlanningAgent
 from app.agents.telemetry import TelemetryObservabilityAgent, normalize_prometheus_result
 from app.settings import Settings
 from app.store import LocalRepository
+from tools.export_topology import export_topology
 
 
 class DiscoveryAgentTests(unittest.TestCase):
+    def test_pinned_compose_exports_schema_ready_inventory_and_graph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inventory_path = root / "inventory.json"
+            graph_path = root / "dependency_map.json"
+            inventory, graph = export_topology(
+                ROOT / "deploy" / "ditto" / "docker-compose.yml",
+                inventory_path,
+                graph_path,
+                ROOT / "configs" / "experiment-policy.yaml",
+            )
+            inventory_schema = json.loads((ROOT / "schemas" / "inventory.schema.json").read_text(encoding="utf-8"))
+            graph_schema = json.loads((ROOT / "schemas" / "graph.schema.json").read_text(encoding="utf-8"))
+            service_schema = json.loads((ROOT / "schemas" / "service.schema.json").read_text(encoding="utf-8"))
+            inventory_schema["properties"]["components"]["items"] = service_schema
+            inventory_schema["properties"]["relationships"]["items"] = graph_schema["$defs"]["edge"]
+            inventory_schema["properties"]["network_zones"]["items"] = graph_schema["$defs"]["networkZone"]
+            graph_schema["properties"]["nodes"]["items"] = {"allOf": [service_schema, {"required": ["affected_slis"]}]}
+            Draft202012Validator(inventory_schema).validate(inventory)
+            Draft202012Validator(graph_schema).validate(graph)
+            self.assertEqual(inventory["status"], "available")
+            self.assertEqual(graph["status"], "available")
+            self.assertTrue({"gateway", "things-search"}.issubset({item["id"] for item in inventory["components"]}))
+            self.assertTrue(all(edge["provenance"] for edge in graph["edges"]))
+
+    def test_partial_manifest_never_claims_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "compose.yml"
+            path.write_text("services:\n  gateway:\n    image: eclipse/ditto-gateway:3.9.8\n  broken: [not, a, service]\n", encoding="utf-8")
+            report = DittoDiscoveryAgent(path).discover()
+        self.assertEqual(report.status, "partial")
     def test_missing_manifest_returns_empty_unavailable_graph_not_a_demo_topology(self):
         with tempfile.TemporaryDirectory() as directory:
             report = DittoDiscoveryAgent(Path(directory) / "missing-compose.yml").discover()

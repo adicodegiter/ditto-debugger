@@ -1,0 +1,1406 @@
+{
+  "clusters": [
+    {
+      "complete": true,
+      "confidence": 1.0,
+      "id": "ditto-pekko-cluster",
+      "members": [
+        "connectivity",
+        "gateway",
+        "policies",
+        "things",
+        "things-search"
+      ],
+      "relationship": "documented_cluster_membership_not_request_flow",
+      "source": "ditto_docs:architecture-overview"
+    }
+  ],
+  "created_at": "2026-10-10T10:39:40.497766+00:00",
+  "criticality": {
+    "connectivity": {
+      "configured_dependents": 0,
+      "evidence_type": "static",
+      "relative_score": 0.0
+    },
+    "ditto-ui": {
+      "configured_dependents": 0,
+      "evidence_type": "static",
+      "relative_score": 0.0
+    },
+    "gateway": {
+      "configured_dependents": 1,
+      "evidence_type": "static",
+      "relative_score": 0.25
+    },
+    "mongodb": {
+      "configured_dependents": 4,
+      "evidence_type": "static",
+      "relative_score": 1.0
+    },
+    "nginx": {
+      "configured_dependents": 0,
+      "evidence_type": "static",
+      "relative_score": 0.0
+    },
+    "policies": {
+      "configured_dependents": 4,
+      "evidence_type": "static",
+      "relative_score": 1.0
+    },
+    "things": {
+      "configured_dependents": 0,
+      "evidence_type": "static",
+      "relative_score": 0.0
+    },
+    "things-search": {
+      "configured_dependents": 0,
+      "evidence_type": "static",
+      "relative_score": 0.0
+    }
+  },
+  "edges": [
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.connectivity.environment.MONGO_DB_HOSTNAME",
+      "provenance_type": "configured",
+      "relation": "configured_database_host",
+      "runtime_observed": false,
+      "source": "connectivity",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "reverse",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "documented_persistence",
+      "runtime_observed": false,
+      "source": "connectivity",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.connectivity.depends_on",
+      "provenance_type": "configured",
+      "relation": "compose_depends_on",
+      "runtime_observed": false,
+      "source": "connectivity",
+      "target": "policies"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "bidirectional",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "pekko_cluster_communication",
+      "runtime_observed": false,
+      "source": "gateway",
+      "target": "connectivity"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.gateway.depends_on",
+      "provenance_type": "configured",
+      "relation": "compose_depends_on",
+      "runtime_observed": false,
+      "source": "gateway",
+      "target": "policies"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "bidirectional",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "pekko_cluster_communication",
+      "runtime_observed": false,
+      "source": "gateway",
+      "target": "policies"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "bidirectional",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "pekko_cluster_communication",
+      "runtime_observed": false,
+      "source": "gateway",
+      "target": "things"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "bidirectional",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "pekko_cluster_communication",
+      "runtime_observed": false,
+      "source": "gateway",
+      "target": "things-search"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.nginx.depends_on",
+      "provenance_type": "configured",
+      "relation": "compose_depends_on",
+      "runtime_observed": false,
+      "source": "nginx",
+      "target": "gateway"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.policies.environment.MONGO_DB_HOSTNAME",
+      "provenance_type": "configured",
+      "relation": "configured_database_host",
+      "runtime_observed": false,
+      "source": "policies",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "reverse",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "documented_persistence",
+      "runtime_observed": false,
+      "source": "policies",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.things.environment.MONGO_DB_HOSTNAME",
+      "provenance_type": "configured",
+      "relation": "configured_database_host",
+      "runtime_observed": false,
+      "source": "things",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "reverse",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "documented_persistence",
+      "runtime_observed": false,
+      "source": "things",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.things.depends_on",
+      "provenance_type": "configured",
+      "relation": "compose_depends_on",
+      "runtime_observed": false,
+      "source": "things",
+      "target": "policies"
+    },
+    {
+      "confidence": 0.8,
+      "evidence_type": "documented",
+      "impact_direction": "forward",
+      "provenance": "project_plan:p2_topology",
+      "provenance_type": "documented",
+      "relation": "documented_search_projection",
+      "runtime_observed": false,
+      "source": "things",
+      "target": "things-search"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.things-search.environment.MONGO_DB_HOSTNAME",
+      "provenance_type": "configured",
+      "relation": "configured_database_host",
+      "runtime_observed": false,
+      "source": "things-search",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "documented",
+      "impact_direction": "reverse",
+      "provenance": "ditto_docs:architecture-overview",
+      "provenance_type": "documented",
+      "relation": "documented_persistence",
+      "runtime_observed": false,
+      "source": "things-search",
+      "target": "mongodb"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "static",
+      "impact_direction": "reverse",
+      "provenance": "compose:services.things-search.depends_on",
+      "provenance_type": "configured",
+      "relation": "compose_depends_on",
+      "runtime_observed": false,
+      "source": "things-search",
+      "target": "policies"
+    }
+  ],
+  "graph_version": "b95db81ba7e6c1ab",
+  "impact_paths": {
+    "connectivity": [
+      {
+        "edges": [],
+        "impacted_component": "connectivity",
+        "path": [
+          "connectivity"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          }
+        ],
+        "impacted_component": "gateway",
+        "path": [
+          "connectivity",
+          "gateway"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.nginx.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "nginx",
+            "target": "gateway"
+          }
+        ],
+        "impacted_component": "nginx",
+        "path": [
+          "connectivity",
+          "gateway",
+          "nginx"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "policies",
+        "path": [
+          "connectivity",
+          "gateway",
+          "policies"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things"
+          }
+        ],
+        "impacted_component": "things",
+        "path": [
+          "connectivity",
+          "gateway",
+          "things"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things-search"
+          }
+        ],
+        "impacted_component": "things-search",
+        "path": [
+          "connectivity",
+          "gateway",
+          "things-search"
+        ]
+      }
+    ],
+    "ditto-ui": [
+      {
+        "edges": [],
+        "impacted_component": "ditto-ui",
+        "path": [
+          "ditto-ui"
+        ]
+      }
+    ],
+    "gateway": [
+      {
+        "edges": [],
+        "impacted_component": "gateway",
+        "path": [
+          "gateway"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          }
+        ],
+        "impacted_component": "connectivity",
+        "path": [
+          "gateway",
+          "connectivity"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.nginx.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "nginx",
+            "target": "gateway"
+          }
+        ],
+        "impacted_component": "nginx",
+        "path": [
+          "gateway",
+          "nginx"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "policies",
+        "path": [
+          "gateway",
+          "policies"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things"
+          }
+        ],
+        "impacted_component": "things",
+        "path": [
+          "gateway",
+          "things"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things-search"
+          }
+        ],
+        "impacted_component": "things-search",
+        "path": [
+          "gateway",
+          "things-search"
+        ]
+      }
+    ],
+    "mongodb": [
+      {
+        "edges": [],
+        "impacted_component": "mongodb",
+        "path": [
+          "mongodb"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.connectivity.environment.MONGO_DB_HOSTNAME",
+            "provenance_type": "configured",
+            "relation": "configured_database_host",
+            "runtime_observed": false,
+            "source": "connectivity",
+            "target": "mongodb"
+          }
+        ],
+        "impacted_component": "connectivity",
+        "path": [
+          "mongodb",
+          "connectivity"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.policies.environment.MONGO_DB_HOSTNAME",
+            "provenance_type": "configured",
+            "relation": "configured_database_host",
+            "runtime_observed": false,
+            "source": "policies",
+            "target": "mongodb"
+          }
+        ],
+        "impacted_component": "policies",
+        "path": [
+          "mongodb",
+          "policies"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.things.environment.MONGO_DB_HOSTNAME",
+            "provenance_type": "configured",
+            "relation": "configured_database_host",
+            "runtime_observed": false,
+            "source": "things",
+            "target": "mongodb"
+          }
+        ],
+        "impacted_component": "things",
+        "path": [
+          "mongodb",
+          "things"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.things-search.environment.MONGO_DB_HOSTNAME",
+            "provenance_type": "configured",
+            "relation": "configured_database_host",
+            "runtime_observed": false,
+            "source": "things-search",
+            "target": "mongodb"
+          }
+        ],
+        "impacted_component": "things-search",
+        "path": [
+          "mongodb",
+          "things-search"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.connectivity.environment.MONGO_DB_HOSTNAME",
+            "provenance_type": "configured",
+            "relation": "configured_database_host",
+            "runtime_observed": false,
+            "source": "connectivity",
+            "target": "mongodb"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          }
+        ],
+        "impacted_component": "gateway",
+        "path": [
+          "mongodb",
+          "connectivity",
+          "gateway"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.connectivity.environment.MONGO_DB_HOSTNAME",
+            "provenance_type": "configured",
+            "relation": "configured_database_host",
+            "runtime_observed": false,
+            "source": "connectivity",
+            "target": "mongodb"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.nginx.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "nginx",
+            "target": "gateway"
+          }
+        ],
+        "impacted_component": "nginx",
+        "path": [
+          "mongodb",
+          "connectivity",
+          "gateway",
+          "nginx"
+        ]
+      }
+    ],
+    "nginx": [
+      {
+        "edges": [],
+        "impacted_component": "nginx",
+        "path": [
+          "nginx"
+        ]
+      }
+    ],
+    "policies": [
+      {
+        "edges": [],
+        "impacted_component": "policies",
+        "path": [
+          "policies"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.connectivity.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "connectivity",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "connectivity",
+        "path": [
+          "policies",
+          "connectivity"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.gateway.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "gateway",
+        "path": [
+          "policies",
+          "gateway"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.things.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "things",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "things",
+        "path": [
+          "policies",
+          "things"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.things-search.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "things-search",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "things-search",
+        "path": [
+          "policies",
+          "things-search"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.gateway.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "policies"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.nginx.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "nginx",
+            "target": "gateway"
+          }
+        ],
+        "impacted_component": "nginx",
+        "path": [
+          "policies",
+          "gateway",
+          "nginx"
+        ]
+      }
+    ],
+    "things": [
+      {
+        "edges": [],
+        "impacted_component": "things",
+        "path": [
+          "things"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things"
+          }
+        ],
+        "impacted_component": "gateway",
+        "path": [
+          "things",
+          "gateway"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 0.8,
+            "evidence_type": "documented",
+            "impact_direction": "forward",
+            "provenance": "project_plan:p2_topology",
+            "provenance_type": "documented",
+            "relation": "documented_search_projection",
+            "runtime_observed": false,
+            "source": "things",
+            "target": "things-search"
+          }
+        ],
+        "impacted_component": "things-search",
+        "path": [
+          "things",
+          "things-search"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          }
+        ],
+        "impacted_component": "connectivity",
+        "path": [
+          "things",
+          "gateway",
+          "connectivity"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.nginx.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "nginx",
+            "target": "gateway"
+          }
+        ],
+        "impacted_component": "nginx",
+        "path": [
+          "things",
+          "gateway",
+          "nginx"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "policies",
+        "path": [
+          "things",
+          "gateway",
+          "policies"
+        ]
+      }
+    ],
+    "things-search": [
+      {
+        "edges": [],
+        "impacted_component": "things-search",
+        "path": [
+          "things-search"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things-search"
+          }
+        ],
+        "impacted_component": "gateway",
+        "path": [
+          "things-search",
+          "gateway"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things-search"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "connectivity"
+          }
+        ],
+        "impacted_component": "connectivity",
+        "path": [
+          "things-search",
+          "gateway",
+          "connectivity"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things-search"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "static",
+            "impact_direction": "reverse",
+            "provenance": "compose:services.nginx.depends_on",
+            "provenance_type": "configured",
+            "relation": "compose_depends_on",
+            "runtime_observed": false,
+            "source": "nginx",
+            "target": "gateway"
+          }
+        ],
+        "impacted_component": "nginx",
+        "path": [
+          "things-search",
+          "gateway",
+          "nginx"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things-search"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "policies"
+          }
+        ],
+        "impacted_component": "policies",
+        "path": [
+          "things-search",
+          "gateway",
+          "policies"
+        ]
+      },
+      {
+        "edges": [
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things-search"
+          },
+          {
+            "confidence": 1.0,
+            "evidence_type": "documented",
+            "impact_direction": "bidirectional",
+            "provenance": "ditto_docs:architecture-overview",
+            "provenance_type": "documented",
+            "relation": "pekko_cluster_communication",
+            "runtime_observed": false,
+            "source": "gateway",
+            "target": "things"
+          }
+        ],
+        "impacted_component": "things",
+        "path": [
+          "things-search",
+          "gateway",
+          "things"
+        ]
+      }
+    ]
+  },
+  "network_zones": [
+    {
+      "evidence_type": "static",
+      "id": "default",
+      "members": [
+        "connectivity",
+        "ditto-ui",
+        "gateway",
+        "mongodb",
+        "nginx",
+        "policies",
+        "things",
+        "things-search"
+      ],
+      "source": "compose:services.<name>.networks"
+    }
+  ],
+  "nodes": [
+    {
+      "affected_slis": [
+        "service_availability",
+        "error_rate",
+        "p95_latency"
+      ],
+      "confidence": 1.0,
+      "health_checks": [
+        {
+          "evidence_type": "static",
+          "interval": "30s",
+          "retries": 4,
+          "start_period": "120s",
+          "timeout": "15s",
+          "type": "compose_healthcheck",
+          "url": "http://connectivity:7626/alive"
+        }
+      ],
+      "health_url": "http://connectivity:7626/alive",
+      "id": "connectivity",
+      "image": "docker.io/eclipse/ditto-connectivity:${DITTO_VERSION:-3.9.8}",
+      "kind": "ditto_service",
+      "labels": {
+        "ditto_role": "Connectivity",
+        "image": "docker.io/eclipse/ditto-connectivity:${DITTO_VERSION:-3.9.8}",
+        "manifest_kind": "compose",
+        "metrics_endpoint_scope": "compose_network"
+      },
+      "metrics_url": "http://connectivity:9095/",
+      "name": "connectivity",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "compose"
+    },
+    {
+      "affected_slis": [
+        "service_availability"
+      ],
+      "confidence": 1.0,
+      "health_checks": [],
+      "health_url": null,
+      "id": "ditto-ui",
+      "image": "docker.io/eclipse/ditto-ui:${DITTO_VERSION:-3.9.8}",
+      "kind": "ditto_service",
+      "labels": {
+        "image": "docker.io/eclipse/ditto-ui:${DITTO_VERSION:-3.9.8}",
+        "manifest_kind": "compose",
+        "metrics_endpoint_scope": "compose_network"
+      },
+      "metrics_url": "http://ditto-ui:9095/",
+      "name": "ditto-ui",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "compose"
+    },
+    {
+      "affected_slis": [
+        "service_availability",
+        "error_rate",
+        "p95_latency"
+      ],
+      "confidence": 1.0,
+      "health_checks": [
+        {
+          "evidence_type": "static",
+          "interval": "30s",
+          "retries": 4,
+          "start_period": "120s",
+          "timeout": "15s",
+          "type": "compose_healthcheck",
+          "url": "http://gateway:7626/alive"
+        }
+      ],
+      "health_url": "http://gateway:7626/alive",
+      "id": "gateway",
+      "image": "docker.io/eclipse/ditto-gateway:${DITTO_VERSION:-3.9.8}",
+      "kind": "ditto_service",
+      "labels": {
+        "ditto_role": "Gateway",
+        "image": "docker.io/eclipse/ditto-gateway:${DITTO_VERSION:-3.9.8}",
+        "manifest_kind": "compose",
+        "metrics_endpoint_scope": "compose_network"
+      },
+      "metrics_url": "http://gateway:9095/",
+      "name": "gateway",
+      "ports": [
+        {
+          "container_port": 8080,
+          "host_ip": "127.0.0.1",
+          "host_port": 8081,
+          "protocol": "tcp"
+        }
+      ],
+      "schema_version": "1.0",
+      "source": "compose"
+    },
+    {
+      "affected_slis": [
+        "service_availability"
+      ],
+      "confidence": 1.0,
+      "health_checks": [],
+      "health_url": null,
+      "id": "mongodb",
+      "image": "docker.io/mongo:${MONGO_VERSION:-7.0.14}",
+      "kind": "database",
+      "labels": {
+        "image": "docker.io/mongo:${MONGO_VERSION:-7.0.14}",
+        "manifest_kind": "compose"
+      },
+      "metrics_url": null,
+      "name": "mongodb",
+      "ports": [
+        {
+          "container_port": 27017,
+          "host_ip": "127.0.0.1",
+          "host_port": 27017,
+          "protocol": "tcp"
+        }
+      ],
+      "schema_version": "1.0",
+      "source": "compose"
+    },
+    {
+      "affected_slis": [
+        "service_availability"
+      ],
+      "confidence": 1.0,
+      "health_checks": [],
+      "health_url": null,
+      "id": "nginx",
+      "image": "docker.io/nginx:${NGINX_VERSION:-1.27.2-alpine}",
+      "kind": "proxy",
+      "labels": {
+        "image": "docker.io/nginx:${NGINX_VERSION:-1.27.2-alpine}",
+        "manifest_kind": "compose"
+      },
+      "metrics_url": null,
+      "name": "nginx",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "compose"
+    },
+    {
+      "affected_slis": [
+        "service_availability",
+        "error_rate"
+      ],
+      "confidence": 1.0,
+      "health_checks": [
+        {
+          "evidence_type": "static",
+          "interval": "30s",
+          "retries": 4,
+          "start_period": "120s",
+          "timeout": "15s",
+          "type": "compose_healthcheck",
+          "url": "http://policies:7626/alive"
+        }
+      ],
+      "health_url": "http://policies:7626/alive",
+      "id": "policies",
+      "image": "docker.io/eclipse/ditto-policies:${DITTO_VERSION:-3.9.8}",
+      "kind": "ditto_service",
+      "labels": {
+        "ditto_role": "Policies",
+        "image": "docker.io/eclipse/ditto-policies:${DITTO_VERSION:-3.9.8}",
+        "manifest_kind": "compose",
+        "metrics_endpoint_scope": "compose_network"
+      },
+      "metrics_url": "http://policies:9095/",
+      "name": "policies",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "compose"
+    },
+    {
+      "affected_slis": [
+        "service_availability",
+        "error_rate",
+        "staleness_p95"
+      ],
+      "confidence": 1.0,
+      "health_checks": [
+        {
+          "evidence_type": "static",
+          "interval": "30s",
+          "retries": 4,
+          "start_period": "120s",
+          "timeout": "15s",
+          "type": "compose_healthcheck",
+          "url": "http://things:7626/alive"
+        }
+      ],
+      "health_url": "http://things:7626/alive",
+      "id": "things",
+      "image": "docker.io/eclipse/ditto-things:${DITTO_VERSION:-3.9.8}",
+      "kind": "ditto_service",
+      "labels": {
+        "ditto_role": "Things",
+        "image": "docker.io/eclipse/ditto-things:${DITTO_VERSION:-3.9.8}",
+        "manifest_kind": "compose",
+        "metrics_endpoint_scope": "compose_network"
+      },
+      "metrics_url": "http://things:9095/",
+      "name": "things",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "compose"
+    },
+    {
+      "affected_slis": [
+        "service_availability",
+        "error_rate",
+        "p95_latency",
+        "staleness_p95"
+      ],
+      "confidence": 1.0,
+      "health_checks": [
+        {
+          "evidence_type": "static",
+          "interval": "30s",
+          "retries": 4,
+          "start_period": "120s",
+          "timeout": "15s",
+          "type": "compose_healthcheck",
+          "url": "http://things-search:7626/alive"
+        }
+      ],
+      "health_url": "http://things-search:7626/alive",
+      "id": "things-search",
+      "image": "docker.io/eclipse/ditto-things-search:${DITTO_VERSION:-3.9.8}",
+      "kind": "ditto_service",
+      "labels": {
+        "ditto_role": "Things-Search",
+        "image": "docker.io/eclipse/ditto-things-search:${DITTO_VERSION:-3.9.8}",
+        "manifest_kind": "compose",
+        "metrics_endpoint_scope": "compose_network"
+      },
+      "metrics_url": "http://things-search:9095/",
+      "name": "things-search",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "compose"
+    }
+  ],
+  "schema_version": "1.0",
+  "source_files": [
+    "docker-compose.yml"
+  ],
+  "status": "available",
+  "warnings": []
+}
