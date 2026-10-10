@@ -143,12 +143,11 @@ def cmd_execute(args: argparse.Namespace) -> int:
     try:
         candidate, approval, baseline = orchestrator.prepare_execution(args.experiment_id)
         runner, docker = build_runner(settings, orchestrator, args.dry_run)
-        run = runner.execute(candidate, approval, baseline, forced_test=args.forced_test)
+        run = runner.execute(candidate, approval, baseline, forced_test=args.forced_test, dry_run=args.dry_run)
     except (LookupError, RunnerError, SafetyViolation) as error:
         print(f"Refused: {error}", file=sys.stderr)
         return 2
     if args.dry_run:
-        run["dry_run"] = True
         run["dry_run_commands"] = [" ".join(command) for command in docker.commands]
         run["diagnosis"] = orchestrator.diagnose_run(run, candidate, baseline)  # shown, never recorded
     else:
