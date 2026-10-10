@@ -246,8 +246,28 @@ function renderGraph(graph) {
   svg.innerHTML = `<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#758c86"/></marker></defs>${edges}${boxes}`;
 }
 
+// SLI -> services carrying it, from the manifest-derived graph: each compose node's workbench_slis label,
+// ordered by distance from the entry node(s) (a labelled node with no incoming edge) along the graph's edges.
+function sliPaths(graph) {
+  const nodes = (graph.nodes || []).filter((node) => node.source === "compose");
+  const ids = new Set(nodes.map((node) => node.id));
+  const edges = (graph.edges || []).filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+  const slisOf = (node) => String((node.labels || {}).workbench_slis || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const labelled = nodes.filter((node) => slisOf(node).length);
+  const hasIncoming = new Set(edges.map((edge) => edge.target));
+  const depth = new Map(labelled.filter((node) => !hasIncoming.has(node.id)).map((node) => [node.id, 0]));
+  for (let queue = [...depth.keys()]; queue.length;) {
+    const current = queue.shift();
+    for (const edge of edges) if (edge.source === current && !depth.has(edge.target)) { depth.set(edge.target, depth.get(current) + 1); queue.push(edge.target); }
+  }
+  const paths = {};
+  for (const node of labelled) for (const sli of slisOf(node)) (paths[sli] ||= []).push(node.id);
+  for (const list of Object.values(paths)) list.sort((a, b) => (depth.get(a) ?? 99) - (depth.get(b) ?? 99) || a.localeCompare(b));
+  return paths;
+}
+
 function renderArchitectureTables(graph) {
-  const paths = { write: ["nginx", "gateway", "policies", "things", "mongodb"], search: ["nginx", "gateway", "policies", "things-search", "mongodb"], freshness: ["nginx", "gateway", "policies", "things", "mongodb"] };
+  const paths = sliPaths(graph);
   $("#sli-paths").innerHTML = `<thead><tr><th>SLI</th><th>Request path</th></tr></thead><tbody>${Object.entries(paths).map(([sli, path]) => `<tr><td><strong>${escapeText(sli)}</strong></td><td>${path.map(escapeText).join(" → ")}</td></tr>`).join("")}</tbody>`;
   const services = (graph.nodes || []).filter((node) => node.source === "compose");
   $("#service-table").innerHTML = `<thead><tr><th>Service</th><th>Image</th><th>Published</th><th>SLIs</th></tr></thead><tbody>${services.map((node) => {

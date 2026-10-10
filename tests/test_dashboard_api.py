@@ -35,6 +35,13 @@ class DashboardApiTests(unittest.TestCase):
         with (self.metrics / f"{kind}.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"kind": kind, "source": "live", "run_id": "r", "timestamp": ts, **fields}) + "\n")
 
+    def test_planner_agent_status_follows_the_stored_baselines(self):
+        def planner():
+            return next(a for a in self.client.get("/api/v1/agents").json()["agents"] if a["id"] == "experiment_planning")["status"]
+        self.assertEqual(planner(), "blocked_until_baseline")
+        self.client.app.state.orchestrator.repository.save_baseline("graph-v1", {"status": "available", "write_samples": 200})
+        self.assertEqual(planner(), "ready")
+
     def test_ranked_findings_endpoint_responds_and_ranks_a_stored_run(self):
         empty = self.client.get("/api/v1/findings/ranked")
         self.assertEqual(empty.status_code, 200)

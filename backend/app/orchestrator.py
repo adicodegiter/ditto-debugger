@@ -145,5 +145,6 @@ class AgentOrchestrator:
             {"id": "ditto_discovery", "name": self.discovery_agent.name, "status": discovery},
             {"id": "architecture_mapping", "name": self.mapping_agent.name, "status": "ready"},
             {"id": "telemetry_observability", "name": self.telemetry_agent.name, "status": "ready_to_poll"},
-            {"id": "experiment_planning", "name": self.planning_agent.name, "status": "blocked_until_baseline"},
+            {"id": "experiment_planning", "name": self.planning_agent.name,
+             "status": "ready" if self.repository.list_baselines(1) else "blocked_until_baseline"},
         ]
