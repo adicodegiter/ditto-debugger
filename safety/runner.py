@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -34,6 +35,13 @@ class RecoveryChecker(Protocol):
 class Watchdog(Protocol):
     def arm(self, target: str, deadline_epoch: float) -> Any: ...
     def disarm(self, handle: Any) -> None: ...
+
+
+# Forced kill-switch test (CLAUDE.md M4: "a forced abort proving the kill switch").
+# During the fault only, the write-p95 limit drops to 1% of baseline, so any real write
+# latency must trip the real kill switch through the real rollback path. Steady state
+# and recovery keep the normal policy thresholds.
+FORCED_TEST_P95_MULTIPLIER = 0.01
 
 
 def _iso(epoch: float) -> str:
@@ -75,7 +83,14 @@ class ExperimentRunner:
         self._active = False
         self._consumed_approvals: set[str] = set()
 
-    def execute(self, candidate: dict[str, Any], approval: dict[str, Any] | None, baseline: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        candidate: dict[str, Any],
+        approval: dict[str, Any] | None,
+        baseline: dict[str, Any],
+        *,
+        forced_test: bool = False,
+    ) -> dict[str, Any]:
         self.policy.validate_candidate(candidate)
         self._validate_approval(candidate, approval)
         self._validate_baseline(baseline)
@@ -90,14 +105,14 @@ class ExperimentRunner:
             self._consumed_approvals.add(approval_key)
             self._active = True
         try:
-            run = self._run(candidate, baseline)
+            run = self._run(candidate, baseline, forced_test)
         finally:
             with self._lock:
                 self._active = False
         run["resilience_score"] = calculate_resilience_score(run)
         return run
 
-    def _run(self, candidate: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
+    def _run(self, candidate: dict[str, Any], baseline: dict[str, Any], forced_test: bool = False) -> dict[str, Any]:
         thresholds = self.policy.thresholds
         target = candidate["target_component"]
         action = candidate["action"]
@@ -110,12 +125,20 @@ class ExperimentRunner:
             "experiment_id": candidate["id"],
             "status": "running",
             "created_at": timeline["created_at"],
-            "prediction": {"predicted_impacts": candidate["predicted_impacts"]},
+            "prediction": {
+                "predicted_impacts": candidate["predicted_impacts"],
+                **({"predicted_slis": candidate["predicted_slis"]} if candidate.get("predicted_slis") else {}),
+            },
             "observations": [],
             "cleanup_state": "not_started",
             "safety_violation": False,
             "timeline": timeline,
         }
+        if forced_test:
+            run["forced_test"] = True
+            run["forced_test_rule"] = (
+                f"write p95 limit lowered to {FORCED_TEST_P95_MULTIPLIER}x baseline during the fault only"
+            )
         injected = False
         watchdog_handle: Any = None
         effective_baseline = baseline
@@ -138,6 +161,14 @@ class ExperimentRunner:
                 self.audit("experiment_refused", {"run_id": run_id, "reason": run["abort_reason"]})
                 return run
 
+            fault_switch = kill_switch
+            if forced_test:
+                forced_policy = dataclasses.replace(
+                    self.policy,
+                    thresholds=dataclasses.replace(self.policy.thresholds, write_p95_multiplier=FORCED_TEST_P95_MULTIPLIER),
+                )
+                fault_switch = KillSwitch(effective_baseline, forced_policy)
+
             # Arm the independent watchdog before touching the target.
             deadline_epoch = self.wall_clock() + duration + self.policy.watchdog_grace_seconds
             watchdog_handle = self.watchdog.arm(target, deadline_epoch)
@@ -155,13 +186,16 @@ class ExperimentRunner:
                 self.sleep(min(thresholds.poll_interval_seconds, duration - elapsed))
                 observation = {**self.observations.observe(target), "phase": "fault"}
                 run["observations"].append(observation)
-                decision = kill_switch.evaluate(observation, self.clock() - started)
+                decision = fault_switch.evaluate(observation, self.clock() - started)
                 if decision.aborted:
                     run["status"] = "aborted"
                     run["abort_reason"] = decision.reason
                     timeline["abort_at"] = _iso(self.wall_clock())
                     self.audit("experiment_aborted", {"run_id": run_id, "reason": decision.reason})
                     break
+            if forced_test:
+                # The test passes only if the kill switch fired during the fault.
+                run["forced_test_passed"] = run["status"] == "aborted"
             if run["status"] == "running":
                 run["status"] = "recovering"
         except Exception as error:  # noqa: BLE001 - any failure must still reach cleanup

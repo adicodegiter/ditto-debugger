@@ -452,6 +452,30 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(ExperimentRunner.candidate_hash(prepared), approval["candidate_hash"])
         self.assertNotIn("approval", prepared)
 
+    # --- M4 forced kill-switch test ------------------------------------------------------
+    def test_forced_test_trips_the_real_kill_switch_then_recovers_with_normal_thresholds(self):
+        docker, watchdog = FakeDocker(), FakeWatchdog()
+        item = {**candidate(action="restart_container", duration=10), "predicted_slis": {"write": "hold", "search": "fail"}}
+        # Healthy, normal-looking samples throughout: only the lowered fault-phase limit can trip.
+        run = self.runner(docker, ScriptedObservations(HEALTHY), watchdog=watchdog).execute(
+            item, self.approval_for(item), self.baseline, forced_test=True
+        )
+        self.assertTrue(run["forced_test"])
+        self.assertTrue(run["forced_test_passed"])
+        self.assertEqual(run["status"], "aborted")
+        self.assertEqual(run["abort_reason"], "p95_latency_above_baseline_multiplier")
+        self.assertTrue(run["recovery_verified"], "recovery must use the normal thresholds")
+        self.assertEqual(docker.calls[-1], ("start", "things-search"))
+        self.assertEqual(watchdog.disarmed, 1)
+        self.assertEqual(run["resilience_score"]["status"], "not_scored_forced_test")
+        self.assertEqual(run["prediction"]["predicted_slis"], {"write": "hold", "search": "fail"})
+
+    def test_normal_run_is_not_marked_as_forced_test(self):
+        item = candidate(duration=4)
+        run = self.runner(FakeDocker(), ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline)
+        self.assertNotIn("forced_test", run)
+        self.assertEqual(run["status"], "completed")
+
     # --- integration with P3 baseline capture and findings ----------------------------
     def test_kill_switch_reads_write_p95_from_baseline_captured_from_sli_metrics(self):
         from monitor.sli import append_jsonl
