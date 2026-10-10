@@ -266,7 +266,7 @@ class DittoDiscoveryAgent:
                     )
 
         zones = [NetworkZone(zone_id, tuple(sorted(members)), "compose:services.<name>.networks") for zone_id, members in sorted(network_members.items())]
-        status = "available" if components else "unavailable"
+        status = "available" if components and not warnings else "partial" if components else "unavailable"
         if len(paths) and not components:
             warnings.append("Manifest files were readable, but no supported service/workload resources were found.")
         return DiscoveryReport(

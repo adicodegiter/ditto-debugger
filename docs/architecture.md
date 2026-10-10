@@ -17,6 +17,8 @@ flowchart LR
 
 The workbench reads local Compose/Kubernetes manifests, configured loopback telemetry, and documented Ditto architecture. The graph keeps configured, documented, runtime-observed, and manual provenance distinct; unobserved paths are never presented as runtime calls. Each graph snapshot is versioned and includes impacted-component paths and the SLI tags associated with each node.
 
+The canonical M1 export is generated with `python tools/export_topology.py`. It writes the schema-compatible inventory to `data/inventory.json` and the current evidence-backed graph to `ai/dependency_map.json`; the command refuses partial discovery or policy targets absent from the pinned manifest.
+
 ## How The AI Decides
 
 The current planner is deterministic. It first requires a fresh healthy baseline that matches the graph plus current telemetry with at least 80% coverage. Eligible candidates are ranked by graph impact, novelty, and uncertainty using `weighted_heuristic_v1`; policy risk and duration limits reject candidates before they are shown. Each proposal carries a hypothesis and references to its graph, baseline, and metrics. No LLM call is needed to rank a plan.
