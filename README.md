@@ -39,7 +39,13 @@ The upstream Ditto module paths and the custom workbench code map are in [Ditto 
   - the Ditto v2 API paths (`/api/2/policies`, `/api/2/things`, `/api/2/search/things`)
   - the policy body with the `nginx:ditto` subject
   - the `mongo:7.0.14` tag
-- The Docker chaos runner is implemented as an opt-in local process with fixed Compose actions, approval, cleanup, recovery, kill-switch, and audit gates. The execute endpoint returns `503` unless `CHAOS_EXECUTION_ENABLED=true` is explicitly set on the operator machine.
+- **Chaos runner.** It runs only as a separate operator process (`python -m safety.cli execute <experiment_id>`). The API never runs Docker, and its execute endpoint always returns `503`. The runner:
+  - requires `CHAOS_EXECUTION_ENABLED=true`
+  - polls the kill switch every 2 s during a fault, using real SLI samples from `data/metrics/*.jsonl`
+  - arms an independent watchdog process before injecting a fault
+  - verifies recovery after every run, including aborted runs
+
+  `--dry-run` reads real state and SLIs but changes no container. See [docs/safety-model.md](docs/safety-model.md).
 - Team repository: https://github.com/adicodegiter/ditto-debugger
 
 ## Prerequisites
@@ -129,15 +135,24 @@ Open `http://127.0.0.1:8000`. Discovery reads `deploy/ditto/docker-compose.yml` 
 
 See [deployment instructions](docs/deployment.md) for version and telemetry caveats.
 
-## Demo Workflow (Planned)
+## Demo Workflow
 
-1. Start the pinned local Ditto stack and a low, bounded workload.
-2. Capture a healthy baseline and build a confidence-labelled graph from the checked-out Compose file and official architecture facts.
-3. Ask the planner for a candidate; show its target, hypothesis, graph evidence, predicted impact, uncertainty, and risk.
-4. Require a named human approval. Execute only the allow-listed short container restart in the local Compose project.
-5. Verify `/alive` and a functional Ditto canary, compare telemetry with the baseline, and produce an evidence-linked finding and score.
+1. **Start the target and the workload.** Bring up the pinned Ditto stack (see Local Setup), then run the bounded fleet workload. Keep it running in its own terminal for the whole demo:
+   ```bash
+   python simulator/fleet_workload.py --duration-seconds 900 --metrics-dir data/metrics
+   ```
+2. **Capture a baseline.** With the API running (`python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000`), call `POST /api/v1/discovery/refresh`, then `POST /api/v1/baselines`. The baseline is built from the live SLI samples in `data/metrics/` and is refused unless every SLI is healthy.
+3. **Plan and approve.** Call `POST /api/v1/experiments/plan` for ranked candidates (target, hypothesis, graph evidence, predicted impact, risk). Then a human records a decision with `POST /api/v1/experiments/{id}/approval`, using the candidate hash.
+4. **Rehearse, then execute from the operator process.** The API never executes; its `/execute` endpoint returns 503.
+   ```bash
+   python -m safety.cli execute <experiment_id> --dry-run
+   CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute <experiment_id>
+   ```
+   - The dry run changes no container and does not use up the approval.
+   - Before a real run, the runner checks steady state and arms the independent watchdog. During the fault it polls the kill switch every 2 s and rolls back on the first breach.
+5. **Recovery and findings.** After rollback, the runner checks `/health`, an authenticated canary, and the SLIs since rollback. It saves the run together with deterministic, evidence-linked findings (`GET /api/v1/runs`, `GET /api/v1/findings`).
 
-The planned flow is detailed in [the demo runbook](docs/hackathon-demo.md). Until the runner exists, do not interpret the configuration examples as executable fault injection.
+More detail is in [the demo runbook](docs/hackathon-demo.md) and [the safety model](docs/safety-model.md).
 
 ## Team Workflow
 

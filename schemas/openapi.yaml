@@ -149,7 +149,7 @@ paths:
       operationId: executeApprovedExperiment
       responses:
         "503":
-          description: Fault execution is disabled until the isolated runner passes its safety gate
+          description: Always 503. The API never executes faults; approved experiments run only via the separate operator process (python -m safety.cli execute)
   /api/v1/runs:
     get:
       operationId: listExperimentRuns
