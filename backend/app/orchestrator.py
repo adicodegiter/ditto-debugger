@@ -12,6 +12,8 @@ from safety.policy import Policy
 from safety.runner import RunnerError
 from monitor.window import baseline_from_metrics
 from ai.diagnosis import diagnose, history_outcome
+from ai.explain import explain_findings
+from ai.ranking import rank_findings
 from ai.report import generate_findings
 
 
@@ -112,7 +114,7 @@ class AgentOrchestrator:
             if outcome is not None:
                 self.repository.record_outcome(candidate["target_component"], candidate["action"], outcome, f"run:{run['run_id']}")
             run["history_outcome"] = outcome
-        findings = generate_findings(run)
+        findings = explain_findings(generate_findings(run), run)  # no-op unless AI_PROVIDER=groq
         self.repository.save_run(run)
         self.repository.save_findings(run["run_id"], findings)
         return findings
@@ -144,5 +146,6 @@ class AgentOrchestrator:
             {"id": "ditto_discovery", "name": self.discovery_agent.name, "status": discovery},
             {"id": "architecture_mapping", "name": self.mapping_agent.name, "status": "ready"},
             {"id": "telemetry_observability", "name": self.telemetry_agent.name, "status": "ready_to_poll"},
-            {"id": "experiment_planning", "name": self.planning_agent.name, "status": "blocked_until_baseline"},
+            {"id": "experiment_planning", "name": self.planning_agent.name,
+             "status": "ready" if self.repository.list_baselines(1) else "blocked_until_baseline"},
         ]

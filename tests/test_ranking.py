@@ -1,7 +1,10 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from ai.ranking import load_run_files, measured_facts, rank_findings, render_markdown
 from ai.report import generate_findings
@@ -27,6 +30,18 @@ class RankingTests(unittest.TestCase):
                                        {"phase": "fault", "write_error_rate": 0.0, "search_error_rate": 0.0},
                                        {"phase": "recovered", "write_error_rate": 0.2, "search_error_rate": 0.0}])
         self.assertEqual([f["id"] for f in generate_findings(quiet)], ["q-absorbed"])
+
+    def test_kill_switch_abort_is_a_high_finding_but_not_for_forced_or_dry_runs(self):
+        aborted = run("a", status="aborted", abort_reason="p95_latency_above_baseline_multiplier",
+                      observations=[{"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 455.0, "search_error_rate": 0.0}])
+        findings = generate_findings(aborted)
+        abort = next(f for f in findings if f["id"] == "a-kill-switch-abort")
+        self.assertEqual(abort["severity"], "high")
+        self.assertIn("abort:p95_latency_above_baseline_multiplier", abort["evidence"])
+        self.assertNotIn("a-absorbed", [f["id"] for f in findings])
+        self.assertEqual(rank_findings([aborted], findings)[0]["finding_id"], "a-kill-switch-abort")
+        for flag in ("forced_test", "dry_run"):
+            self.assertNotIn("a-kill-switch-abort", [f["id"] for f in generate_findings({**aborted, flag: True})])
 
     def test_ranks_by_severity_then_confidence_and_numbers_from_run(self):
         runs = [run("r1"), run("r2", recovery_verified=False)]
@@ -128,6 +143,25 @@ class SharedRunRecordTests(unittest.TestCase):
         self.assertEqual(aborted["abort_reason"], "p95_latency_above_baseline_multiplier")
         self.assertTrue(any(f["fact"] == "kill switch abort reason" for item in ranked if item["run_id"] == aborted["run_id"] for f in item["measured_facts"]))
 
+    def test_windows_records_rank_with_target_and_action_even_without_diagnosis(self):
+        files = sorted((EVIDENCE.parent / "windows-host").glob("run-*.json"))
+        self.assertEqual(len(files), 4)
+        runs = load_run_files([str(f) for f in files])
+        ranked = rank_findings(runs, [f for r in runs for f in generate_findings(r)])
+        labels = {item["run_id"]: (item["action"], item["target"]) for item in ranked}
+        # The M4 record pre-dates the diagnosis block: action from its planner id, target from its recovery check.
+        self.assertEqual(labels["run-c8b30b07c9f3"], ("restart_container", "things-search"))
+        self.assertNotIn(("unknown", "unknown"), labels.values())
+
+    def test_unlabelled_record_stays_unknown_and_both_id_formats_map_to_actions(self):
+        from ai.ranking import _ID_PREFIX_ACTIONS, _target_and_action
+        from safety.policy import SUPPORTED_ACTIONS
+
+        self.assertEqual(set(_ID_PREFIX_ACTIONS.values()), set(SUPPORTED_ACTIONS))
+        for experiment_id in ("restart-things-search-1", "restart_container-things-search-1"):
+            record = {"run_id": "r", "experiment_id": experiment_id, "recovery": {"target": "things-search"}}
+            self.assertEqual(_target_and_action(record), ("things-search", "restart_container"))
+        self.assertEqual(_target_and_action({"run_id": "r", "experiment_id": "mystery-1"}), ("unknown", "unknown"))
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,7 @@ from typing import Any, Callable, Protocol
 
 from .kill_switch import KillSwitch, baseline_write_p95
 from .policy import Policy, SafetyViolation
-from .scoring import calculate_resilience_score, derive_score_components
+from .scoring import calculate_resilience_score, score_breakdown
 
 
 class RunnerError(RuntimeError):
@@ -113,7 +113,7 @@ class ExperimentRunner:
                 self._active = False
         if dry_run:
             run["dry_run"] = True
-        run["score_components"] = derive_score_components(run, self.policy.recovery_timeout_seconds)
+        run["score_components"], run["score_inputs"] = score_breakdown(run, self.policy.recovery_timeout_seconds)
         run["resilience_score"] = calculate_resilience_score(run)
         return run
 

@@ -8,6 +8,15 @@ const escapeText = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 }[char]));
 
+function scoreBreakdown(score, inputs) {
+  const components = (score && score.components) || {};
+  const names = Object.keys(components);
+  if (!names.length) return `<p class="muted">No score components: ${escapeText(fmt.label((score && score.status) || "not scored"))}.</p>`;
+  const detail = (name) => Object.entries((inputs && inputs[name]) || {}).filter(([k]) => k !== "rule").map(([k, v]) => `${escapeText(fmt.label(k))}: ${escapeText(v ?? "n/a")}`).join(" · ");
+  const rows = names.map((name) => `<tr><td>${escapeText(fmt.label(name))}</td><td>${escapeText(Number(components[name]).toFixed(2))}</td><td>${escapeText((((inputs || {})[name] || {}).rule) || "")}</td><td>${detail(name)}</td></tr>`).join("");
+  return `<h3>Score inputs</h3><p class="activity-meta">Status ${escapeText(fmt.label(score.status))} · coverage ${escapeText(score.coverage)}${inputs && inputs.score_version ? ` · score version ${escapeText(inputs.score_version)}` : ""}</p><table class="data-table"><thead><tr><th>Component</th><th>Value</th><th>Rule</th><th>Inputs</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 async function getJson(path, options) {
   const response = await fetch(path, options);
   let payload = {};
@@ -246,8 +255,28 @@ function renderGraph(graph) {
   svg.innerHTML = `<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#758c86"/></marker></defs>${edges}${boxes}`;
 }
 
+// SLI -> services carrying it, from the manifest-derived graph: each compose node's workbench_slis label,
+// ordered by distance from the entry node(s) (a labelled node with no incoming edge) along the graph's edges.
+function sliPaths(graph) {
+  const nodes = (graph.nodes || []).filter((node) => node.source === "compose");
+  const ids = new Set(nodes.map((node) => node.id));
+  const edges = (graph.edges || []).filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+  const slisOf = (node) => String((node.labels || {}).workbench_slis || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const labelled = nodes.filter((node) => slisOf(node).length);
+  const hasIncoming = new Set(edges.map((edge) => edge.target));
+  const depth = new Map(labelled.filter((node) => !hasIncoming.has(node.id)).map((node) => [node.id, 0]));
+  for (let queue = [...depth.keys()]; queue.length;) {
+    const current = queue.shift();
+    for (const edge of edges) if (edge.source === current && !depth.has(edge.target)) { depth.set(edge.target, depth.get(current) + 1); queue.push(edge.target); }
+  }
+  const paths = {};
+  for (const node of labelled) for (const sli of slisOf(node)) (paths[sli] ||= []).push(node.id);
+  for (const list of Object.values(paths)) list.sort((a, b) => (depth.get(a) ?? 99) - (depth.get(b) ?? 99) || a.localeCompare(b));
+  return paths;
+}
+
 function renderArchitectureTables(graph) {
-  const paths = { write: ["nginx", "gateway", "policies", "things", "mongodb"], search: ["nginx", "gateway", "policies", "things-search", "mongodb"], freshness: ["nginx", "gateway", "policies", "things", "mongodb"] };
+  const paths = sliPaths(graph);
   $("#sli-paths").innerHTML = `<thead><tr><th>SLI</th><th>Request path</th></tr></thead><tbody>${Object.entries(paths).map(([sli, path]) => `<tr><td><strong>${escapeText(sli)}</strong></td><td>${path.map(escapeText).join(" → ")}</td></tr>`).join("")}</tbody>`;
   const services = (graph.nodes || []).filter((node) => node.source === "compose");
   $("#service-table").innerHTML = `<thead><tr><th>Service</th><th>Image</th><th>Published</th><th>SLIs</th></tr></thead><tbody>${services.map((node) => {
@@ -454,6 +483,7 @@ async function renderRunDetail(run) {
       <div><span>Watchdog</span><strong>${run.watchdog ? (run.watchdog.armed ? "still armed" : "armed → disarmed") : "—"}</strong></div>
       <div><span>Score</span><strong>${escapeText(score.score ?? fmt.label(score.status || "—"))}</strong></div>
     </div>
+    ${scoreBreakdown(score, run.score_inputs)}
     <h3>Timeline</h3>
     <ol class="timeline">${steps.map(([key, label]) => `<li class="${key === "abort_at" ? "abort" : ""}"><span>${escapeText(label)}</span><b>${escapeText(rel(timeline[key]))}</b><small>${escapeText(fmt.time(timeline[key]))}</small></li>`).join("")}</ol>
     <h3>Kill switch, poll by poll</h3>

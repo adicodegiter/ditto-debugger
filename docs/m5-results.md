@@ -4,7 +4,8 @@ Run on 2026-10-10 against the pinned Ditto 3.9.8 stack on the team's Windows hos
 bounded fleet workload running (8 vehicles, 2 req/s, SSE freshness). Each experiment had a
 fresh baseline, a dry run, an approval typed by a human (Radhika Kumar, P1) and a real run
 through `python -m safety.cli execute` with `CHAOS_EXECUTION_ENABLED=true`. Raw records are
-in `data/experiments/` (not in git); every number below comes from them.
+in `data/experiments/` (not in git) and copied to `docs/evidence/windows-host/`; every number
+below comes from them.
 
 | # | Fault | Run | Baseline | Outcome |
 |---|---|---|---|---|
@@ -56,6 +57,40 @@ The first burst dry run (`run-3fd934841e22-dry-run`, 60 s) aborted with
 `max_duration_seconds` (60), and the kill switch's last poll lands about 1 s after the planned
 end, so every 60 s fault would have aborted. `traffic_burst`, `stop_container` and
 `cpu_throttle` now default to 45 s (`configs/experiment-policy.yaml`); no limit was loosened.
+
+## 5.7 Remediation re-run: `things-search` restart, before vs after
+
+Remediation under test (PR #8, client side): the search probe's timeout went from 10 s to
+3 s, and write, search and freshness probes run concurrently instead of one after another.
+Ditto itself was not changed. Re-run `run-a09cb1bcbb7c` (baseline `baseline-c290fc21633a`:
+293 writes, 0% errors, p95 24.7 ms; dry run, typed approval) against the Day 1 restart
+`run-c8b30b07c9f3`. Raw samples from `data/metrics/*.jsonl`, from 5 s before injection to
+5 s after recovery was verified. Records: `docs/evidence/windows-host/`.
+
+| Measure | Before (Day 1, `run-c8b30b07c9f3`) | After (`run-a09cb1bcbb7c`) |
+|---|---|---|
+| Time each failing search hung | 10.0 s (2 of 2 failures, `ReadTimeout`) | **3.0 s** (5 of 5 failures, `ReadTimeout`) |
+| Search samples in the window | 14 in 24.9 s (0.56/s) | 53 in 44.1 s (1.20/s) |
+| Write samples in the window | 13 in 24.9 s (0.52/s), 0 failed | 83 in 44.1 s (1.88/s; target 2/s), 0 failed |
+| Worst search error rate (30 s window) | not recorded per window on Day 1 | 4.8% |
+| Write p95 during fault | 19.6 ms | 38.2 ms (1.5x baseline; abort limit 3x) |
+| Search failures after rollback | last one 2.0 s after rollback | last one 7.0 s after rollback |
+| Recovery verified after rollback | 4.2 s | 22.4 s |
+| Resilience score | not scored (pre-dates scoring) | 89.0 (complete) |
+
+What the numbers show:
+
+- **The client-side fix works.** A failing search now costs 3 s instead of 10 s (70% less),
+  and an outage no longer starves the other probes: the write probe kept 94% of its target
+  rate during the restart instead of about a quarter.
+- **Ditto still does not fail fast.** Every failed search was still a `ReadTimeout` at the
+  client's limit; the gateway holds the request instead of answering with an error while
+  `things-search` is down. The server-side part of the finding stays open: a gateway-side
+  timeout or circuit breaker for search.
+- **Recovery was slower this time** (22.4 s against 4.2 s): searches kept failing until 7 s
+  after rollback, against 2 s on Day 1, and the recovery check waits until the SLIs since
+  rollback are back within thresholds. These are two single runs on different days, so this
+  is a variance to watch, not a regression attributed to the fix.
 
 ## Notes for the findings report (5.6)
 

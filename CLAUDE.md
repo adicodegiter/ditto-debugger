@@ -56,12 +56,12 @@ Ditto services: nginx → gateway → policies / things / things-search / connec
 ## SLIs (Agent 2)
 1. **Write path:** success rate + p50/p95 latency of telemetry writes — built
 2. **Search path:** success rate + latency of fleet search queries — built
-3. **Freshness:** staleness = now − telemetry timestamp. Currently a **poll-based proxy,
-   labelled as such**; target is the SSE live stream (pending).
+3. **Freshness:** staleness of each telemetry change when it arrives on Ditto's SSE stream
+   (`received_at − last_seen`). `--freshness-method poll-proxy` is the labelled fallback.
 **Recovery time** = rollback until all SLIs are back within baseline.
 All samples are JSON Lines in `data/metrics/*.jsonl`, ISO-8601 UTC timestamps.
 
-## Kill switch thresholds (logic built and tested; not yet wired to a runner)
+## Kill switch thresholds (wired to the runner; polled every 2 s during a fault)
 | Signal | Abort when | Window |
 |---|---|---|
 | Write error rate | > 20% | last 30 s |
@@ -71,10 +71,11 @@ All samples are JSON Lines in `data/metrics/*.jsonl`, ISO-8601 UTC timestamps.
 | Any experiment | exceeds `max_duration_s` | — |
 
 ## Allowed fault types (predefined control-plane actions only)
-Done: container restart/stop of `things-search` (M4). Day 2 (on `feat/m5-fault-catalog`):
+Done: container restart/stop of `things-search` (M4). Day 2 (merged in #12, run live in 5.5):
 `pause_container` (compose pause/unpause), `cpu_throttle` (`docker update --cpu-quota`, the
 only action that may target `mongodb`), `traffic_burst` (bounded extra workload against
-nginx, auto-stops at its cap). MongoDB stays out of routine fault injection. Later, if time
+nginx on separate twins, auto-stops at its cap). Defaults stay below the 60 s cap (45 s; the
+last kill-switch poll lands ~1 s after the planned end). MongoDB stays out of routine fault injection. Later, if time
 allows: network delay inside a target container's namespace, capped disk fill in our MongoDB
 volume (rollback deletes it). Combined failures are a Day-2 stretch goal.
 
@@ -106,18 +107,18 @@ TOOLS.md            # tools, libraries, AI models (for the team form)
 | P4 | Planner + analyst (Agent 3), diagnosis, findings report |
 | P5 | Control plane: policy, runner, kill-switch wiring, rollback, resilience score |
 
-## Current status (2026-10-10 evening; Day 2 plan in `docs/day2-plan.md`)
+## Current status (`main`, 2026-10-11; tasks in `docs/day2-plan.md`)
 | Item | Status |
 |---|---|
 | M0: pinned Ditto 3.9.8 (`deploy/image-pins.env`, `deploy/ditto/`), loopback-only ports | Done; `health_check.sh` and `smoke_test.py` (own twin `bosch.fleet:smoke-test`) pass |
-| M1: discovery + graph + `ai/dependency_map.json` + `docs/dependency-map.md` | Done (`python -m ai.dependency_map`); 8 components, 18 edges, each with a source |
-| M2: workload, three SLIs, 120 s run-scoped baseline, SSE freshness, concurrent probes | Done (PR #8); baselines of 238 and 682 write samples, 0% errors |
+| M1: discovery + graph + `ai/dependency_map.json` + `docs/dependency-map.md` | Done (`python -m ai.dependency_map`); every edge has a source |
+| M2: workload, three SLIs, 120 s run-scoped baseline, SSE freshness, concurrent probes | Done (PR #8) |
 | M3: safety gate | Done: live kill switch (2 s polls, policy-only limits), watchdog, fixed actions, typed approvals, API `execute` always 503, dry run |
-| M4: real `things-search` restart + forced kill-switch abort | Done; evidence in `docs/m4-results.md` |
-| Dashboard (PR #11, five views) | Merged; not yet checked against the live stack (task 6.4) |
-| M5: 3+ fault types, predicted vs observed, ranked findings | In progress on `feat/m5-fault-catalog` (not merged): pause, CPU throttle, burst (5.1/5.2), PR #5 diagnosis merged and wired to real run records (5.3), per-action SLI predictions (5.4). Pending: three live runs (5.5), findings (5.6), remediation re-run (5.7) |
-| M6: resilience score, findings report, deliverables | Pending. `safety/scoring.py` exists but nothing sets `score_components` yet (6.1); `docs/architecture.md` outdated (6.3); `docs/findings-report.md` not started (6.2) |
-| Tests | 114 passing on `feat/m5-fault-catalog` (90 on `main` before it) (`python -m unittest discover -s tests`) |
+| M4: real `things-search` restart + forced kill-switch abort | Done; `docs/m4-results.md` |
+| M5: fault types, predicted vs observed, ranked findings | Done. Restart, pause and burst run live with recovery verified (`docs/m5-results.md`, records in `docs/evidence/windows-host/`); per-SLI predictions and diagnosis on real runs; ranked findings (`python -m ai.ranking`); 5.7 re-run: a failing search now hangs 3.0 s instead of 10.0 s |
+| M6: score, deliverables | Score done (`score_components` + `score_inputs`); dashboard checked live (`docs/dashboard-check.md`); architecture page rewritten. **Pending: findings report `docs/findings-report.md` (P4), demo video (P3), team form submission (P1)** |
+| Agent 3 LLM | Optional Groq adapter (`ai/llm.py`, `ai/explain.py`), off unless `AI_PROVIDER=groq`; deterministic findings are the fallback |
+| Tests | 148 passing on `main` (`python -m unittest discover -s tests`) |
 
 **How to run an experiment:** `docs/m4-runbook.md` (`safety.cli baseline → plan → approve → execute [--dry-run|--forced-test]`).
 Only the operator CLI executes; it needs `CHAOS_EXECUTION_ENABLED=true` and an approval typed by a human.

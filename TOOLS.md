@@ -32,12 +32,13 @@ The dashboard (`frontend/`) is plain HTML, CSS and JavaScript with no third-part
 ## AI models
 | Model | Where used | Notes |
 |---|---|---|
-| _none yet_ | Planner is deterministic (`AI_PROVIDER=none`) | Every LLM feature must have a no-API-key fallback |
+| Groq API (`GROQ_MODEL`, default `openai/gpt-oss-120b`) | `ai/explain.py` rewrites finding summary/recommendation when `AI_PROVIDER=groq` | No tools, no execution; output schema-checked, falls back to the deterministic findings without a key or on any API error |
 
 ## AI coding assistants used during development
 | Tool | Purpose |
 |---|---|
-| Claude Code (Claude Opus 5.5) | Scaffolding, Ditto deployment, scripts |
+| Claude Code (Claude Opus 5.5, Claude Sonnet 5.5) | Scaffolding, Ditto deployment, scripts, tests, reviews, docs |
+| GitHub Copilot | Code suggestions and PR work |
 
 ## Data used
 | Data | Source | Notes |
@@ -46,4 +47,4 @@ The dashboard (`frontend/`) is plain HTML, CSS and JavaScript with no third-part
 | SLI samples, baselines, run records | Produced by our own probes and runner (`data/metrics/`, `data/baselines/`, `data/experiments/`) | Local only, gitignored |
 | Ditto deployment files and nginx assets | Upstream Eclipse Ditto 3.9.8 `deployment/docker` (vendored in `deploy/ditto/`) | EPL-2.0; sample basic-auth user `ditto:ditto`, loopback only |
 
-No external datasets, cloud services or public endpoints are used.
+No external datasets are used, and the stack under test uses no cloud services or public endpoints. The one optional external call is the Groq API for finding text, off unless `AI_PROVIDER=groq`.

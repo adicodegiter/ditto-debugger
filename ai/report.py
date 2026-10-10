@@ -83,6 +83,19 @@ def generate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
                 "confidence": 0.75,
                 "ai_generated": False,
             })
+    if run.get("abort_reason") and not run.get("forced_test") and not run.get("dry_run"):
+        # The kill switch ended a real run early: the fault pushed an SLI past its abort limit.
+        findings.append({
+            "schema_version": "1.0",
+            "id": f"{run_id}-kill-switch-abort",
+            "run_id": run_id,
+            "severity": "high",
+            "summary": f"The kill switch aborted the run ({str(run['abort_reason']).replace('_', ' ')}): the fault pushed a measured SLI past its abort limit.",
+            "evidence": evidence,
+            "recommendation": "Treat the breached SLI as a capacity or timeout weakness on this path; find the bottleneck before widening or lengthening the fault.",
+            "confidence": 0.9,
+            "ai_generated": False,
+        })
     if not findings:
         findings.append({
             "schema_version": "1.0",
