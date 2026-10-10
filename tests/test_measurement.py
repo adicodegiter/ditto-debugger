@@ -8,8 +8,8 @@ from unittest.mock import Mock
 
 import requests
 
-from monitor.sli import baseline_summary, summarize_freshness_samples, summarize_metrics
-from simulator.fleet_workload import _run_search_probe, _run_write_probe
+from monitor.sli import baseline_summary, load_thresholds, summarize_freshness_samples, summarize_metrics
+from simulator.fleet_workload import _run_freshness_probe, _run_search_probe, _run_write_probe
 
 
 class MeasurementSliTests(unittest.TestCase):
@@ -42,6 +42,36 @@ class MeasurementSliTests(unittest.TestCase):
         summary = summarize_freshness_samples([{"kind": "freshness", "success": False}])
         self.assertEqual(summary["status"], "unknown")
 
+    def test_write_error_threshold_allows_exactly_twenty_percent_but_not_more(self):
+        at_threshold = [{"kind": "write", "success": index != 0, "latency_ms": 10} for index in range(5)]
+        above_threshold = [{"kind": "write", "success": index > 1, "latency_ms": 10} for index in range(5)]
+
+        self.assertEqual(summarize_metrics(at_threshold)["write"]["status"], "healthy")
+        self.assertEqual(summarize_metrics(above_threshold)["write"]["status"], "degraded")
+        self.assertEqual(summarize_metrics(above_threshold)["status"], "unhealthy")
+
+    def test_search_misses_are_reported_without_being_http_errors(self):
+        summary = summarize_metrics([
+            {"kind": "write", "success": True, "latency_ms": 10},
+            {"kind": "search", "success": True, "expected_hit": False, "latency_ms": 10},
+            {"kind": "search", "success": True, "expected_hit": True, "latency_ms": 10},
+            {"kind": "freshness", "success": True, "freshness_seconds": 1},
+        ])
+
+        self.assertEqual(summary["search"]["success_rate"], 1.0)
+        self.assertEqual(summary["search"]["expected_hit_misses"], 1)
+        self.assertEqual(summary["search"]["expected_hit_rate"], 0.5)
+
+    def test_shared_threshold_config_is_loaded(self):
+        thresholds = load_thresholds(Path(__file__).resolve().parents[1] / "configs" / "telemetry.yaml")
+        self.assertEqual(thresholds["write_error_rate_max"], 0.20)
+        self.assertEqual(thresholds["write_p95_multiplier"], 3.0)
+        self.assertEqual(thresholds["freshness_p95_seconds_max"], 30.0)
+
+    def test_freshness_summary_labels_poll_proxy(self):
+        summary = summarize_freshness_samples([{"freshness_seconds": 1.0}])
+        self.assertEqual(summary["method"], "poll-proxy")
+
     def test_jsonl_baseline_summary_handles_missing_kinds(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -53,6 +83,21 @@ class MeasurementSliTests(unittest.TestCase):
             summary = baseline_summary(base, run_id="run-a", window_start=datetime(2026, 10, 10, 13, 0, tzinfo=timezone.utc))
         self.assertEqual(summary["status"], "unhealthy")
         self.assertTrue(any("Missing" in warning for warning in summary["warnings"]))
+        self.assertEqual(summary["write"]["samples"], 1)
+
+    def test_baseline_filters_old_runs_and_fixture_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            live = '{"kind":"write","source":"live","run_id":"new","success":true,"latency_ms":10,"timestamp":"2026-10-10T13:00:01.000Z"}\n'
+            old = '{"kind":"write","source":"live","run_id":"old","success":false,"latency_ms":10,"timestamp":"2026-10-10T12:00:00.000Z"}\n'
+            fixture = '{"kind":"write","source":"fixture","run_id":"new","success":true,"latency_ms":10,"timestamp":"2026-10-10T13:00:02.000Z"}\n'
+            (base / "write.jsonl").write_text(live + old + fixture, encoding="utf-8")
+            summary = baseline_summary(
+                base,
+                run_id="new",
+                window_start=datetime(2026, 10, 10, 13, tzinfo=timezone.utc),
+                window_end=datetime(2026, 10, 10, 13, 0, 2, tzinfo=timezone.utc),
+            )
         self.assertEqual(summary["write"]["samples"], 1)
 
     def test_probes_record_transport_failures_instead_of_raising(self):
@@ -69,6 +114,41 @@ class MeasurementSliTests(unittest.TestCase):
         self.assertFalse(search["success"])
         self.assertIsNone(search["status_code"])
         self.assertEqual(search["error"], "Timeout")
+
+    def test_failed_freshness_probe_records_failure_sample(self):
+        session = Mock()
+        session.get.side_effect = requests.ConnectionError("gateway down")
+
+        freshness = _run_freshness_probe(
+            session,
+            "bosch.fleet:vehicle-01",
+            api_base="http://local/api/2",
+            run_id="run-fail",
+        )
+
+        self.assertFalse(freshness["success"])
+        self.assertIsNone(freshness["status_code"])
+        self.assertEqual(freshness["error"], "ConnectionError")
+
+    def test_write_probe_uses_feature_level_telemetry_update(self):
+        session = Mock()
+        response = Mock(status_code=204)
+        session.put.return_value = response
+
+        record = _run_write_probe(
+            session,
+            "bosch.fleet:vehicle-01",
+            value=42,
+            api_base="http://local/api/2",
+            run_id="run-write",
+        )
+
+        request = session.put.call_args
+        self.assertEqual(request.args[0], "http://local/api/2/things/bosch.fleet:vehicle-01/features/telemetry/properties")
+        self.assertEqual(request.kwargs["json"]["speed_kph"], 42)
+        self.assertTrue(record["success"])
+        self.assertEqual(record["source"], "live")
+        self.assertRegex(record["timestamp"], r"\.\d{3}Z$")
 
 
 if __name__ == "__main__":
