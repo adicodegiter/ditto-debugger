@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "id": "restart-things-search-sample",
+  "target_component": "things-search",
+  "action": "restart_container",
+  "duration_seconds": 10,
+  "hypothesis": "A short Things-Search restart may affect its documented responsibility; compare service health and relevant API behavior through recovery.",
+  "predicted_impacts": ["things-search"],
+  "predicted_slis": { "write": "hold", "search": "fail", "freshness": "hold" },
+  "reason": "things-search (Things-Search): 0 configured dependent(s); predicted to affect search; never tested before. Chosen as a low-blast-radius first experiment.",
+  "risk_score": 0.3,
+  "approval_required": true
+}

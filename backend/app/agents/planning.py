@@ -14,10 +14,11 @@ from ..store import LocalRepository
 class ExperimentPlanningAgent:
     name = "AI Experiment Planning Agent"
 
-    def __init__(self, policy_path: Path, repository: LocalRepository) -> None:
+    def __init__(self, policy_path: Path, repository: LocalRepository, planner_config_path: Path | None = None) -> None:
         with Path(policy_path).open("r", encoding="utf-8") as stream:
             self.policy = yaml.safe_load(stream) or {}
         self.repository = repository
+        self.planner_config = self._load_planner_config(planner_config_path or Path(policy_path).parent / "planner.yaml")
 
     def plan(self, graph: dict[str, Any], telemetry: dict[str, Any], baseline: dict[str, Any], max_candidates: int = 3) -> dict[str, Any]:
         if graph.get("status") != "available":
@@ -48,6 +49,10 @@ class ExperimentPlanningAgent:
         candidates = []
         rejections = []
 
+        measured = list(self.planner_config["measured_slis"])
+        effects_by_target = self.planner_config["predicted_effects"]
+        entries = []
+
         for policy_target, target, node in candidate_targets:
             if node.get("kind") != "ditto_service":
                 rejections.append({"target": target, "reason": "target is not a discovered Ditto service"})
@@ -55,6 +60,11 @@ class ExperimentPlanningAgent:
             risk = float(risk_scores.get(policy_target, 1.0))
             if risk > risk_cap or duration < 1:
                 rejections.append({"target": target, "reason": "risk or duration exceeds deterministic policy"})
+                continue
+            effects = effects_by_target.get(target) or effects_by_target.get(policy_target) or {}
+            predicted_slis = {sli: effects.get(sli, "hold") for sli in measured}
+            if not any(value != "hold" for value in predicted_slis.values()):
+                rejections.append({"target": target, "reason": "no predicted effect is observable with the measured SLIs"})
                 continue
             dependents = int(graph.get("criticality", {}).get(target, {}).get("configured_dependents", 0))
             role = node.get("labels", {}).get("ditto_role", DITTO_ROLES.get(target, target))
@@ -66,7 +76,7 @@ class ExperimentPlanningAgent:
             candidate_id = hashlib.sha256(f"{graph['graph_version']}:{baseline['baseline_id']}:{target}:restart_container".encode("utf-8")).hexdigest()[:16]
             predicted_impacts = ["external_http_websocket_api"] if role == "Gateway" else [target]
             metric_refs = sorted({f"metric:{item['metric']}" for item in telemetry.get("observations", []) if item.get("quality") == "fresh"})
-            candidates.append({
+            candidate = {
                 "schema_version": "1.0",
                 "id": f"restart-{target}-{candidate_id}",
                 "target_component": target,
@@ -74,6 +84,7 @@ class ExperimentPlanningAgent:
                 "duration_seconds": duration,
                 "hypothesis": self._hypothesis(role),
                 "predicted_impacts": predicted_impacts,
+                "predicted_slis": predicted_slis,
                 "information_gain": novelty,
                 "risk_score": risk,
                 "evidence_refs": [f"graph:{graph['graph_version']}", f"baseline:{baseline['baseline_id']}", *metric_refs],
@@ -81,7 +92,28 @@ class ExperimentPlanningAgent:
                 "selection_score": selection_score,
                 "score_terms": {"impact": impact, "novelty": novelty, "uncertainty": uncertainty},
                 "ranking_method": "weighted_heuristic_v1",
-            })
+            }
+            entries.append({"candidate": candidate, "impact": impact, "trials": history["trials"], "role": role, "dependents": dependents})
+
+        first_run = bool(entries) and all(entry["trials"] == 0 for entry in entries)
+        fallback = False
+        if first_run:
+            limit = float(self.planner_config["first_run_max_impact"])
+            eligible = [entry for entry in entries if entry["impact"] <= limit]
+            if not eligible:
+                lowest = min(entry["impact"] for entry in entries)
+                eligible = [entry for entry in entries if entry["impact"] == lowest]
+                fallback = True
+            for entry in entries:
+                if entry not in eligible:
+                    rejections.append({
+                        "target": entry["candidate"]["target_component"],
+                        "reason": f"deferred: the first experiment must have impact <= {limit:.2f} (this one is {entry['impact']:.2f}); eligible after one completed run",
+                    })
+            entries = eligible
+        for entry in entries:
+            entry["candidate"]["reason"] = self._reason(entry, first_run, fallback)
+            candidates.append(entry["candidate"])
 
         candidates.sort(key=lambda item: (-item["selection_score"], item["risk_score"], item["target_component"]))
         return {
@@ -92,6 +124,28 @@ class ExperimentPlanningAgent:
             "policy_rejections": rejections,
             "execution_enabled": False,
         }
+
+    @staticmethod
+    def _load_planner_config(path: Path) -> dict[str, Any]:
+        config: dict[str, Any] = {"measured_slis": ["write", "search", "freshness"], "first_run_max_impact": 0.35, "predicted_effects": {}}
+        if Path(path).is_file():
+            with Path(path).open("r", encoding="utf-8") as stream:
+                loaded = yaml.safe_load(stream) or {}
+            for key in config:
+                if key in loaded:
+                    config[key] = loaded[key]
+        return config
+
+    @staticmethod
+    def _reason(entry: dict[str, Any], first_run: bool, fallback: bool) -> str:
+        candidate = entry["candidate"]
+        hit = [sli for sli, value in candidate["predicted_slis"].items() if value != "hold"]
+        text = (f"{candidate['target_component']} ({entry['role']}): {entry['dependents']} configured dependent(s); "
+                f"predicted to affect {', '.join(hit)}; ")
+        text += "never tested before" if entry["trials"] == 0 else f"tested {entry['trials']} time(s) before"
+        if first_run:
+            text += ". Chosen as a low-blast-radius first experiment" + (" (lowest impact available)" if fallback else "")
+        return text + "."
 
     def _baseline_is_fresh(self, baseline: dict[str, Any]) -> bool:
         try:

@@ -1,0 +1,8 @@
+{
+  "_note": "SAMPLE. Replace with the telemetry agent's real baseline once P3 publishes per-SLI numbers.",
+  "slis": {
+    "write": { "error_rate": 0.0, "p95_ms": 35.0 },
+    "search": { "error_rate": 0.0, "p95_ms": 60.0 },
+    "freshness": { "error_rate": 0.0, "p95_ms": 40.0 }
+  }
+}
