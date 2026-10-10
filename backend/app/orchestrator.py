@@ -129,6 +129,9 @@ class AgentOrchestrator:
     def record_findings(self, run_id: str, findings: list[dict[str, Any]]) -> None:
         self.repository.save_findings(run_id, findings)
 
+    def ranked_findings(self, limit: int = 200) -> list[dict[str, Any]]:
+        return rank_findings(self.repository.list_runs(limit), self.repository.list_findings())
+
     def list_findings(self, run_id: str | None = None) -> list[dict[str, Any]]:
         return self.repository.list_findings(run_id)
 
