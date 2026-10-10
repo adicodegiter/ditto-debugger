@@ -24,7 +24,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
 PLACEHOLDER_PREFIX = "INSERT_"  # the template value in .env; counts as "no key"

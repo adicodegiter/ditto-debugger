@@ -64,7 +64,7 @@ class GroqAdapterTests(unittest.TestCase):
         self.assertEqual(kwargs["json"]["response_format"], {"type": "json_object"})
         self.assertIn("JSON", kwargs["json"]["messages"][-1]["content"])
         self.assertNotIn("k", url.split("/")[-1])
-        self.assertEqual(client().model, "llama-3.3-70b-versatile")
+        self.assertEqual(client().model, "openai/gpt-oss-120b")
 
     def test_valid_output_rewrites_text_only(self):
         out = explain_findings(FINDINGS, {"run_id": "r1"}, client(GOOD))[0]

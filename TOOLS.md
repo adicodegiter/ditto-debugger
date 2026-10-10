@@ -32,7 +32,7 @@ The dashboard (`frontend/`) is plain HTML, CSS and JavaScript with no third-part
 ## AI models
 | Model | Where used | Notes |
 |---|---|---|
-| Groq API (`GROQ_MODEL`, default `llama-3.3-70b-versatile`) | `ai/explain.py` rewrites finding summary/recommendation when `AI_PROVIDER=groq` | No tools, no execution; output schema-checked, falls back to the deterministic findings without a key or on any API error |
+| Groq API (`GROQ_MODEL`, default `openai/gpt-oss-120b`) | `ai/explain.py` rewrites finding summary/recommendation when `AI_PROVIDER=groq` | No tools, no execution; output schema-checked, falls back to the deterministic findings without a key or on any API error |
 
 ## AI coding assistants used during development
 | Tool | Purpose |
