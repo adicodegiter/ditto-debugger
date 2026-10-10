@@ -17,6 +17,10 @@ class Settings:
     policy_path: Path
     execution_enabled: bool = False
     ditto_base_url: str = "http://127.0.0.1:8080"
+    ditto_user: str = "ditto"
+    ditto_password: str = "ditto"
+    image_pins_file: Path = REPOSITORY_ROOT / "deploy" / "image-pins.env"
+    metrics_dir: Path = REPOSITORY_ROOT / "data" / "metrics"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -36,4 +40,8 @@ class Settings:
             policy_path=Path(os.environ.get("EXPERIMENT_POLICY_FILE", str(REPOSITORY_ROOT / "configs" / "experiment-policy.yaml"))).expanduser(),
             execution_enabled=os.environ.get("CHAOS_EXECUTION_ENABLED", "false").lower() == "true",
             ditto_base_url=os.environ.get("DITTO_BASE_URL", "http://127.0.0.1:8080").rstrip("/"),
+            ditto_user=os.environ.get("DITTO_USER", "ditto"),
+            ditto_password=os.environ.get("DITTO_PASS", "ditto"),
+            image_pins_file=Path(os.environ.get("DITTO_IMAGE_PINS", str(REPOSITORY_ROOT / "deploy" / "image-pins.env"))).expanduser(),
+            metrics_dir=Path(os.environ.get("METRICS_DIR", str(REPOSITORY_ROOT / "data" / "metrics"))).expanduser(),
         )

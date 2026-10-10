@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import json
-import subprocess
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
 
-from .kill_switch import KillSwitch
+from .kill_switch import KillSwitch, baseline_write_p95
 from .policy import Policy, SafetyViolation
 from .scoring import calculate_resilience_score
 
@@ -19,72 +18,58 @@ class RunnerError(RuntimeError):
 
 
 class DockerAdapter(Protocol):
-    def preflight(self, project: str, target: str) -> None: ...
-    def stop(self, project: str, target: str) -> None: ...
-    def start(self, project: str, target: str) -> None: ...
+    def preflight(self, target: str) -> None: ...
+    def apply(self, action: str, target: str) -> None: ...
+    def start(self, target: str) -> None: ...
 
 
 class ObservationProvider(Protocol):
-    def observe(self) -> dict[str, Any]: ...
+    def observe(self, target: str, since: float | None = None) -> dict[str, Any]: ...
 
 
 class RecoveryChecker(Protocol):
     def verify(self, target: str) -> dict[str, Any]: ...
 
 
-class SubprocessDockerAdapter:
-    """Executes only fixed Docker Compose subcommands for the configured project."""
+class Watchdog(Protocol):
+    def arm(self, target: str, deadline_epoch: float) -> Any: ...
+    def disarm(self, handle: Any) -> None: ...
 
-    def __init__(self, executable: str = "docker") -> None:
-        self.executable = executable
 
-    def _run(self, project: str, command: str, target: str) -> None:
-        subprocess.run(
-            [self.executable, "compose", "-p", project, command, target],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-
-    def preflight(self, project: str, target: str) -> None:
-        result = subprocess.run(
-            [self.executable, "compose", "-p", project, "config", "--services"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        services = set(result.stdout.split())
-        if target not in services:
-            raise RunnerError("The target is not present in the pinned Compose project.")
-
-    def stop(self, project: str, target: str) -> None:
-        self._run(project, "stop", target)
-
-    def start(self, project: str, target: str) -> None:
-        self._run(project, "start", target)
+def _iso(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch, timezone.utc).isoformat()
 
 
 class ExperimentRunner:
+    """Deterministic fault runner. Runs only in the operator process (safety.cli), never in the API.
+
+    Order: validate -> preflight -> steady-state check -> arm watchdog -> inject ->
+    poll kill switch every poll_interval_seconds (abort = immediate rollback) ->
+    rollback -> recovery check (also after aborts) -> disarm watchdog.
+    """
+
     def __init__(
         self,
         policy: Policy,
         docker: DockerAdapter,
         observations: ObservationProvider,
         recovery: RecoveryChecker,
+        watchdog: Watchdog,
         audit: Callable[[str, dict[str, Any]], None] | None = None,
         consume_approval: Callable[[dict[str, Any]], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.policy = policy
         self.docker = docker
         self.observations = observations
         self.recovery = recovery
+        self.watchdog = watchdog
         self.audit = audit or (lambda _event, _payload: None)
         self.consume_approval = consume_approval
         self.clock = clock
+        self.wall_clock = wall_clock
         self.sleep = sleep
         self._lock = threading.Lock()
         self._active = False
@@ -104,71 +89,152 @@ class ExperimentRunner:
                 self.consume_approval(approval or {})
             self._consumed_approvals.add(approval_key)
             self._active = True
+        try:
+            run = self._run(candidate, baseline)
+        finally:
+            with self._lock:
+                self._active = False
+        run["resilience_score"] = calculate_resilience_score(run)
+        return run
+
+    def _run(self, candidate: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
+        thresholds = self.policy.thresholds
+        target = candidate["target_component"]
+        action = candidate["action"]
+        duration = candidate["duration_seconds"]
         run_id = f"run-{uuid.uuid4().hex[:12]}"
-        created_at = datetime.now(timezone.utc).isoformat()
+        timeline: dict[str, str] = {"created_at": _iso(self.wall_clock())}
         run: dict[str, Any] = {
             "schema_version": "1.0",
             "run_id": run_id,
             "experiment_id": candidate["id"],
             "status": "running",
-            "created_at": created_at,
+            "created_at": timeline["created_at"],
             "prediction": {"predicted_impacts": candidate["predicted_impacts"]},
             "observations": [],
             "cleanup_state": "not_started",
             "safety_violation": False,
+            "timeline": timeline,
         }
-        target = candidate["target_component"]
-        started = self.clock()
-        stopped = False
+        injected = False
+        watchdog_handle: Any = None
+        effective_baseline = baseline
         try:
-            self.audit("safety_preflight_passed", {"run_id": run_id, "experiment_id": candidate["id"], "target": target})
-            self.docker.preflight(self.policy.compose_project, target)
-            self.docker.stop(self.policy.compose_project, target)
-            stopped = True
-            run["cleanup_state"] = "required"
-            self.audit("fault_started", {"run_id": run_id, "action": candidate["action"], "target": target})
-            self.sleep(candidate["duration_seconds"])
-            observation = self.observations.observe()
-            run["observations"].append(observation)
-            decision = KillSwitch(baseline, self.policy).evaluate(observation, self.clock() - started)
-            if decision.aborted:
+            self.audit("safety_preflight_started", {"run_id": run_id, "experiment_id": candidate["id"], "target": target})
+            self.docker.preflight(target)
+
+            # Steady state: the system must be healthy *now*, measured with real SLI samples.
+            pre = {**self.observations.observe(target), "phase": "pre_fault"}
+            run["observations"].append(pre)
+            if baseline_write_p95(baseline) is None:
+                effective_baseline = {**baseline, "sli": {"write_p95_ms": pre.get("write_p95_ms")}, "sli_source": "pre_fault_window"}
+            run["baseline_write_p95_ms"] = baseline_write_p95(effective_baseline)
+            kill_switch = KillSwitch(effective_baseline, self.policy)
+            steady = kill_switch.evaluate(pre, 0.0, enforce_deadline=False)
+            if steady.aborted:
                 run["status"] = "aborted"
-                run["abort_reason"] = decision.reason
-                self.audit("experiment_aborted", {"run_id": run_id, "reason": decision.reason})
-            else:
+                run["abort_reason"] = f"steady_state_not_met:{steady.reason}"
+                run["baseline_valid"] = False
+                self.audit("experiment_refused", {"run_id": run_id, "reason": run["abort_reason"]})
+                return run
+
+            # Arm the independent watchdog before touching the target.
+            deadline_epoch = self.wall_clock() + duration + self.policy.watchdog_grace_seconds
+            watchdog_handle = self.watchdog.arm(target, deadline_epoch)
+            run["watchdog"] = {"armed": True, "deadline": _iso(deadline_epoch)}
+
+            self.docker.apply(action, target)
+            injected = True
+            run["cleanup_state"] = "required"
+            started = self.clock()
+            timeline["injected_at"] = _iso(self.wall_clock())
+            self.audit("fault_started", {"run_id": run_id, "action": action, "target": target})
+
+            # Live kill switch: evaluate every poll interval, roll back on the first abort.
+            while (elapsed := self.clock() - started) < duration:
+                self.sleep(min(thresholds.poll_interval_seconds, duration - elapsed))
+                observation = {**self.observations.observe(target), "phase": "fault"}
+                run["observations"].append(observation)
+                decision = kill_switch.evaluate(observation, self.clock() - started)
+                if decision.aborted:
+                    run["status"] = "aborted"
+                    run["abort_reason"] = decision.reason
+                    timeline["abort_at"] = _iso(self.wall_clock())
+                    self.audit("experiment_aborted", {"run_id": run_id, "reason": decision.reason})
+                    break
+            if run["status"] == "running":
                 run["status"] = "recovering"
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - any failure must still reach cleanup
             run["status"] = "failed"
             run["error"] = type(error).__name__
+            run["error_detail"] = str(error)[:300]
             self.audit("runner_error", {"run_id": run_id, "error": type(error).__name__})
         finally:
-            try:
-                if stopped:
-                    self.docker.start(self.policy.compose_project, target)
-                run["cleanup_state"] = "complete"
-                self.audit("cleanup_complete", {"run_id": run_id, "target": target})
-            except Exception as error:
-                run["cleanup_state"] = "failed"
-                run["status"] = "failed"
-                run["error"] = type(error).__name__
-                self.audit("cleanup_failed", {"run_id": run_id, "error": type(error).__name__})
-        if run["status"] == "recovering":
-            try:
-                recovery = self.recovery.verify(target)
-                run["recovery"] = recovery
-                run["recovery_verified"] = bool(recovery.get("healthy") and recovery.get("canary"))
-                run["status"] = "completed" if run["recovery_verified"] else "failed"
-                run["recovery_time_seconds"] = max(0.0, self.clock() - started)
-                self.audit("recovery_checked", {"run_id": run_id, "verified": run["recovery_verified"]})
-            except Exception as error:
-                run["status"] = "failed"
-                run["error"] = type(error).__name__
-                run["recovery_verified"] = False
-                self.audit("recovery_failed", {"run_id": run_id, "error": type(error).__name__})
-        with self._lock:
-            self._active = False
-        run["resilience_score"] = calculate_resilience_score(run)
+            rollback_ok = self._rollback(run, target, injected, watchdog_handle)
+
+        if injected and rollback_ok:
+            self._verify_recovery(run, target, kill_switch)
+        run["baseline_valid"] = run.get("baseline_valid", True)
         return run
+
+    def _rollback(self, run: dict[str, Any], target: str, injected: bool, watchdog_handle: Any) -> bool:
+        timeline = run["timeline"]
+        if not injected:
+            if watchdog_handle is not None:
+                self.watchdog.disarm(watchdog_handle)
+                run["watchdog"]["armed"] = False
+            return True
+        try:
+            self.docker.start(target)
+        except Exception as error:  # noqa: BLE001
+            run["cleanup_state"] = "failed"
+            run["status"] = "failed"
+            run["error"] = type(error).__name__
+            # Leave the watchdog armed: it retries the cleanup independently.
+            self.audit("cleanup_failed", {"run_id": run["run_id"], "error": type(error).__name__, "watchdog": "left_armed"})
+            return False
+        run["cleanup_state"] = "complete"
+        timeline["rollback_at"] = _iso(self.wall_clock())
+        run["_rollback_wall"] = self.wall_clock()
+        run["_rollback_mono"] = self.clock()
+        if watchdog_handle is not None:
+            self.watchdog.disarm(watchdog_handle)
+            run["watchdog"]["armed"] = False
+        self.audit("cleanup_complete", {"run_id": run["run_id"], "target": target})
+        return True
+
+    def _verify_recovery(self, run: dict[str, Any], target: str, kill_switch: KillSwitch) -> None:
+        """Recovered = API health + canary pass AND the SLIs since rollback are back within thresholds."""
+        rollback_wall = run.pop("_rollback_wall")
+        rollback_mono = run.pop("_rollback_mono")
+        deadline = rollback_mono + self.policy.recovery_timeout_seconds
+        last: dict[str, Any] = {}
+        while True:
+            try:
+                check = self.recovery.verify(target)
+            except Exception as error:  # noqa: BLE001
+                check = {"healthy": False, "canary": False, "error": type(error).__name__}
+            observation = self.observations.observe(target, since=rollback_wall)
+            slis = kill_switch.evaluate(observation, 0.0, enforce_deadline=False)
+            last = {**check, "slis_within_baseline": not slis.aborted, "sli_reason": slis.reason}
+            if check.get("healthy") and check.get("canary") and not slis.aborted:
+                run["recovery_verified"] = True
+                run["recovery_time_seconds"] = round(max(0.0, self.clock() - rollback_mono), 3)
+                run["timeline"]["recovered_at"] = _iso(self.wall_clock())
+                run["observations"].append({**observation, "phase": "recovered"})
+                break
+            if self.clock() >= deadline:
+                run["recovery_verified"] = False
+                run["observations"].append({**observation, "phase": "recovery_timeout"})
+                break
+            self.sleep(self.policy.recovery_poll_interval_seconds)
+        run["recovery"] = last
+        self.audit("recovery_checked", {"run_id": run["run_id"], "verified": run["recovery_verified"]})
+        if run["status"] == "recovering":
+            run["status"] = "completed" if run["recovery_verified"] else "failed"
+        elif run["status"] == "aborted" and not run["recovery_verified"]:
+            # Aborted AND not recovered: operator recovery is required.
+            run["status"] = "failed"
 
     def _validate_approval(self, candidate: dict[str, Any], approval: dict[str, Any] | None) -> None:
         if not self.policy.approval_required:
@@ -192,7 +258,15 @@ class ExperimentRunner:
         payload = json.dumps(candidate, sort_keys=True, separators=(",", ":"))
         return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
-    @staticmethod
-    def _validate_baseline(baseline: dict[str, Any]) -> None:
+    def _validate_baseline(self, baseline: dict[str, Any]) -> None:
         if baseline.get("telemetry_status") != "available" or not baseline.get("baseline_id"):
             raise SafetyViolation("A healthy baseline with telemetry coverage is required.")
+        try:
+            captured = datetime.fromisoformat(str(baseline.get("captured_at")).replace("Z", "+00:00"))
+        except (TypeError, ValueError) as error:
+            raise SafetyViolation("The baseline has no valid capture time.") from error
+        if captured.tzinfo is None:
+            raise SafetyViolation("The baseline capture time must include a timezone.")
+        age = (datetime.now(timezone.utc) - captured).total_seconds()
+        if age < 0 or age > self.policy.baseline_max_age_seconds:
+            raise SafetyViolation("The baseline is stale; capture a new one before executing.")

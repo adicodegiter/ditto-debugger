@@ -11,35 +11,76 @@ class AbortDecision:
     reason: str | None = None
 
 
+# Every field the kill switch needs. A missing or non-numeric value is never read as
+# healthy: it aborts with "missing_samples" (CLAUDE.md: missing samples = unhealthy).
+REQUIRED_FIELDS = (
+    "telemetry_available",
+    "unrelated_component_healthy",
+    "write_samples",
+    "write_error_rate",
+    "write_p95_ms",
+    "freshness_samples",
+    "freshness_p95_seconds",
+)
+
+
+def _finite(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def baseline_write_p95(baseline: dict[str, Any]) -> float | None:
+    sli = baseline.get("sli") if isinstance(baseline, dict) else None
+    value = _finite((sli or {}).get("write_p95_ms"))
+    return value if value is not None and value > 0 else None
+
+
 class KillSwitch:
+    """Pure abort logic. Thresholds come only from the policy, never from the observation."""
+
     def __init__(self, baseline: dict[str, Any], policy: Any) -> None:
         self.baseline = baseline
         self.policy = policy
+        self.thresholds = policy.thresholds
 
-    def evaluate(self, observation: dict[str, Any], elapsed_seconds: float) -> AbortDecision:
-        required = {"telemetry_available", "baseline_healthy", "unrelated_component_healthy", "error_rate"}
-        if not required.issubset(observation):
-            return AbortDecision(True, "missing_samples")
-        if elapsed_seconds > self.policy.max_duration_seconds:
+    def evaluate(self, observation: dict[str, Any], elapsed_seconds: float, *, enforce_deadline: bool = True) -> AbortDecision:
+        if enforce_deadline and elapsed_seconds > self.policy.max_duration_seconds:
             return AbortDecision(True, "experiment_deadline_exceeded")
-        if observation.get("baseline_healthy") is False:
-            return AbortDecision(True, "baseline_unhealthy")
-        if observation.get("unrelated_component_healthy") is False:
+        if not isinstance(observation, dict) or any(field not in observation for field in REQUIRED_FIELDS):
+            return AbortDecision(True, "missing_samples")
+        if observation.get("telemetry_available") is not True:
+            return AbortDecision(True, "missing_samples")
+        if observation.get("unrelated_component_healthy") is not True:
             return AbortDecision(True, "unrelated_component_unhealthy")
-        if observation.get("telemetry_available") is False:
+
+        write_samples = _finite(observation["write_samples"])
+        error_rate = _finite(observation["write_error_rate"])
+        if write_samples is None or error_rate is None or write_samples < self.thresholds.min_write_samples:
             return AbortDecision(True, "missing_samples")
-        try:
-            error_rate = float(observation["error_rate"])
-        except (TypeError, ValueError):
-            return AbortDecision(True, "missing_samples")
-        if not math.isfinite(error_rate):
-            return AbortDecision(True, "missing_samples")
-        if error_rate > float(observation.get("error_rate_limit", 0.20)):
+        # Error rate first: if every write failed there is no latency to report, and the
+        # right reason is the error rate, not missing samples.
+        if error_rate > self.thresholds.write_error_rate:
             return AbortDecision(True, "error_rate_above_configured_limit")
-        baseline_p95 = observation.get("baseline_p95_latency")
-        current_p95 = observation.get("p95_latency")
-        if baseline_p95 is not None and current_p95 is not None and float(current_p95) > 3 * float(baseline_p95):
-            return AbortDecision(True, "p95_latency_above_three_times_baseline")
-        if observation.get("freshness_p95_seconds") is not None and float(observation["freshness_p95_seconds"]) > 30:
-            return AbortDecision(True, "freshness_p95_above_30_seconds")
+
+        write_p95 = _finite(observation["write_p95_ms"])
+        freshness_samples = _finite(observation["freshness_samples"])
+        freshness_p95 = _finite(observation["freshness_p95_seconds"])
+        if None in (write_p95, freshness_samples, freshness_p95):
+            return AbortDecision(True, "missing_samples")
+        if freshness_samples < self.thresholds.min_freshness_samples:
+            return AbortDecision(True, "missing_samples")
+
+        baseline_p95 = baseline_write_p95(self.baseline)
+        if baseline_p95 is None:
+            return AbortDecision(True, "baseline_unhealthy")
+
+        if write_p95 > self.thresholds.write_p95_multiplier * baseline_p95:
+            return AbortDecision(True, "p95_latency_above_baseline_multiplier")
+        if freshness_p95 > self.thresholds.freshness_p95_seconds:
+            return AbortDecision(True, "freshness_p95_above_limit")
         return AbortDecision(False)

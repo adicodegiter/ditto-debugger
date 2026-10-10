@@ -39,7 +39,13 @@ The upstream Ditto module paths and the custom workbench code map are in [Ditto 
   - the Ditto v2 API paths (`/api/2/policies`, `/api/2/things`, `/api/2/search/things`)
   - the policy body with the `nginx:ditto` subject
   - the `mongo:7.0.14` tag
-- The Docker chaos runner is implemented as an opt-in local process with fixed Compose actions, approval, cleanup, recovery, kill-switch, and audit gates. The execute endpoint returns `503` unless `CHAOS_EXECUTION_ENABLED=true` is explicitly set on the operator machine.
+- **Chaos runner.** It runs only as a separate operator process (`python -m safety.cli execute <experiment_id>`). The API never runs Docker, and its execute endpoint always returns `503`. The runner:
+  - requires `CHAOS_EXECUTION_ENABLED=true`
+  - polls the kill switch every 2 s during a fault, using real SLI samples from `data/metrics/*.jsonl`
+  - arms an independent watchdog process before injecting a fault
+  - verifies recovery after every run, including aborted runs
+
+  `--dry-run` reads real state and SLIs but changes no container. See [docs/safety-model.md](docs/safety-model.md).
 - Team repository: https://github.com/adicodegiter/ditto-debugger
 
 ## Prerequisites

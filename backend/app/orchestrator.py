@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.request import Request, urlopen
 
 from .agents.discovery import DittoDiscoveryAgent
 from .agents.mapping import ArchitectureMapperAgent
@@ -10,39 +9,12 @@ from .agents.telemetry import TelemetryObservabilityAgent
 from .settings import Settings
 from .store import LocalRepository
 from safety.policy import Policy
-from safety.runner import ExperimentRunner, RunnerError, SubprocessDockerAdapter
+from safety.runner import RunnerError
 
 
-class _ObservationProvider:
-    def __init__(self, telemetry_agent: TelemetryObservabilityAgent) -> None:
-        self.telemetry_agent = telemetry_agent
-
-    def observe(self) -> dict[str, Any]:
-        result = self.telemetry_agent.collect()
-        return {
-            "telemetry_available": result.get("status") == "available",
-            "baseline_healthy": result.get("status") == "available",
-            "unrelated_component_healthy": result.get("status") == "available",
-            "error_rate": 0.0,
-            "observed_at": result.get("observed_at"),
-            "coverage": result.get("coverage", 0.0),
-        }
-
-
-class _RecoveryChecker:
-    def __init__(self, base_url: str) -> None:
-        self.base_url = base_url.rstrip("/")
-
-    def verify(self, target: str) -> dict[str, Any]:
-        try:
-            with urlopen(Request(f"{self.base_url}/alive", headers={"Accept": "*/*"}), timeout=3) as response:
-                healthy = response.status == 200
-            canary_path = "/api/2/search/things?filter=eq(thingId,%22urn:ditto:thing:synthetic%22)" if target == "things-search" else "/api/2/things?limit=1"
-            with urlopen(Request(f"{self.base_url}{canary_path}", headers={"Accept": "application/json"}), timeout=3) as response:
-                canary = 200 <= response.status < 500
-            return {"target": target, "healthy": healthy, "canary": canary}
-        except OSError as error:
-            return {"target": target, "healthy": False, "canary": False, "error": type(error).__name__}
+# Keys the store adds to a candidate when reading it back. They are not part of the
+# immutable proposal, so they must be removed before checking the approval hash.
+_STORED_ENRICHMENT_KEYS = frozenset({"plan_id", "candidate_hash", "approval_status", "approval"})
 
 
 class AgentOrchestrator:
@@ -92,8 +64,15 @@ class AgentOrchestrator:
         )
 
     def execute_experiment(self, experiment_id: str) -> dict[str, Any]:
-        if not self.settings.execution_enabled:
-            raise RunnerError("Fault execution is disabled. Set CHAOS_EXECUTION_ENABLED=true for the local runner.")
+        # The API process never runs Docker (team agreement: the runner has its own
+        # process boundary). Approved experiments run via the operator CLI.
+        raise RunnerError(
+            "Fault execution is disabled in the API. Run approved experiments with the operator CLI: "
+            "python -m safety.cli execute <experiment_id> [--dry-run]."
+        )
+
+    def prepare_execution(self, experiment_id: str) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any]]:
+        """Return (immutable candidate, approval, baseline) for the operator CLI."""
         experiment = self.repository.get_experiment(experiment_id)
         if experiment is None:
             raise LookupError("Experiment was not found.")
@@ -103,17 +82,8 @@ class AgentOrchestrator:
         baseline = self.repository.get_baseline(baseline_id)
         if baseline is None:
             raise RunnerError("The experiment has no executable baseline reference.")
-        runner = ExperimentRunner(
-            self.policy,
-            SubprocessDockerAdapter(),
-            _ObservationProvider(self.telemetry_agent),
-            _RecoveryChecker(self.settings.ditto_base_url),
-            audit=self.repository.record_audit,
-            consume_approval=self.repository.consume_approval,
-        )
-        run = runner.execute(experiment, experiment.get("approval"), baseline)
-        self.repository.save_run(run)
-        return run
+        candidate = {key: value for key, value in experiment.items() if key not in _STORED_ENRICHMENT_KEYS}
+        return candidate, experiment.get("approval"), baseline
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.repository.list_runs(limit)
