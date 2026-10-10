@@ -174,12 +174,16 @@ class ExperimentRunner:
             watchdog_handle = self.watchdog.arm(target, deadline_epoch)
             run["watchdog"] = {"armed": True, "deadline": _iso(deadline_epoch)}
 
-            self.docker.apply(action, target)
+            # Mark the fault as injected *before* the command runs: `docker compose restart`
+            # stops the target immediately and only returns after the start (~8 s), and if the
+            # command fails half-way the target may already be stopped. Cleanup must then run.
             injected = True
             run["cleanup_state"] = "required"
             started = self.clock()
             timeline["injected_at"] = _iso(self.wall_clock())
             self.audit("fault_started", {"run_id": run_id, "action": action, "target": target})
+            self.docker.apply(action, target)
+            timeline["action_completed_at"] = _iso(self.wall_clock())
 
             # Live kill switch: evaluate every poll interval, roll back on the first abort.
             while (elapsed := self.clock() - started) < duration:

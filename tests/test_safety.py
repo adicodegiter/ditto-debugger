@@ -470,6 +470,20 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(run["resilience_score"]["status"], "not_scored_forced_test")
         self.assertEqual(run["prediction"]["predicted_slis"], {"write": "hold", "search": "fail"})
 
+    def test_failed_action_command_still_rolls_back(self):
+        class HalfFailingDocker(FakeDocker):
+            def apply(self, action, target):
+                super().apply(action, target)
+                raise DockerCommandError("restart failed after stopping the container")
+
+        docker = HalfFailingDocker()
+        item = candidate(action="restart_container", duration=4)
+        run = self.runner(docker, ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline)
+        self.assertEqual(run["status"], "failed")
+        self.assertEqual(docker.calls[-1], ("start", "things-search"), "cleanup must run even if the action command failed")
+        self.assertEqual(run["cleanup_state"], "complete")
+        self.assertLessEqual(run["timeline"]["injected_at"], run["timeline"]["rollback_at"])
+
     def test_normal_run_is_not_marked_as_forced_test(self):
         item = candidate(duration=4)
         run = self.runner(FakeDocker(), ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline)
