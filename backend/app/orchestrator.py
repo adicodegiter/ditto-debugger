@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import base64
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from .agents.discovery import DittoDiscoveryAgent
 from .agents.mapping import ArchitectureMapperAgent
@@ -13,64 +9,14 @@ from .agents.telemetry import TelemetryObservabilityAgent
 from .settings import Settings
 from .store import LocalRepository
 from safety.policy import Policy
-from safety.runner import ExperimentRunner, RunnerError, SubprocessDockerAdapter
-from monitor.window import baseline_from_metrics, window_stats
+from safety.runner import RunnerError
+from monitor.window import baseline_from_metrics
 from ai.report import generate_findings
 
 
-class _ObservationProvider:
-    def __init__(self, metrics_dir, baseline: dict[str, Any], thresholds_file) -> None:
-        self.metrics_dir = metrics_dir
-        self.baseline = baseline
-        self.thresholds_file = thresholds_file
-
-    def observe(self) -> dict[str, Any]:
-        return window_stats(self.metrics_dir, last_s=30, baseline=self.baseline, thresholds_file=self.thresholds_file)
-
-
-class _RecoveryChecker:
-    def __init__(self, base_url: str, username: str | None = None, password: str | None = None) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.auth_header = None
-        if username and password:
-            token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-            self.auth_header = f"Basic {token}"
-
-    def verify(self, target: str) -> dict[str, Any]:
-        canary_path = "/api/2/search/things?option=size(1)" if target == "things-search" else "/api/2/things?limit=1"
-        started = datetime.now(timezone.utc).timestamp()
-        deadline = started + 60
-        while datetime.now(timezone.utc).timestamp() < deadline:
-            try:
-                health_headers = {"Accept": "*/*"}
-                if self.auth_header:
-                    health_headers["Authorization"] = self.auth_header
-                with urlopen(Request(f"{self.base_url}/health", headers=health_headers), timeout=3) as response:
-                    healthy = response.status == 200
-                canary_headers = {"Accept": "application/json"}
-                if self.auth_header:
-                    canary_headers["Authorization"] = self.auth_header
-                request = Request(f"{self.base_url}{canary_path}", headers=canary_headers)
-                with urlopen(request, timeout=3) as response:
-                    canary = response.status == 200
-                if healthy and canary:
-                    return {
-                        "target": target,
-                        "healthy": True,
-                        "canary": True,
-                        "recovery_time_seconds": datetime.now(timezone.utc).timestamp() - started,
-                    }
-            except (HTTPError, URLError, OSError):
-                pass
-            import time
-            time.sleep(2)
-        return {
-            "target": target,
-            "healthy": False,
-            "canary": False,
-            "error": "recovery_timeout",
-            "recovery_time_seconds": datetime.now(timezone.utc).timestamp() - started,
-        }
+# Keys the store adds to a candidate when reading it back. They are not part of the
+# immutable proposal, so they must be removed before checking the approval hash.
+_STORED_ENRICHMENT_KEYS = frozenset({"plan_id", "candidate_hash", "approval_status", "approval"})
 
 
 class AgentOrchestrator:
@@ -123,8 +69,15 @@ class AgentOrchestrator:
         )
 
     def execute_experiment(self, experiment_id: str) -> dict[str, Any]:
-        if not self.settings.execution_enabled:
-            raise RunnerError("Fault execution is disabled. Set CHAOS_EXECUTION_ENABLED=true for the local runner.")
+        # The API process never runs Docker (team agreement: the runner has its own
+        # process boundary). Approved experiments run via the operator CLI.
+        raise RunnerError(
+            "Fault execution is disabled in the API. Run approved experiments with the operator CLI: "
+            "python -m safety.cli execute <experiment_id> [--dry-run]."
+        )
+
+    def prepare_execution(self, experiment_id: str) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any]]:
+        """Return (immutable candidate, approval, baseline) for the operator CLI."""
         experiment = self.repository.get_experiment(experiment_id)
         if experiment is None:
             raise LookupError("Experiment was not found.")
@@ -134,26 +87,15 @@ class AgentOrchestrator:
         baseline = self.repository.get_baseline(baseline_id)
         if baseline is None:
             raise RunnerError("The experiment has no executable baseline reference.")
-        runner = ExperimentRunner(
-            self.policy,
-            SubprocessDockerAdapter(),
-            _ObservationProvider(
-                self.settings.metrics_dir,
-                baseline.get("telemetry", baseline),
-                self.settings.policy_path.parent / "telemetry.yaml",
-            ),
-            _RecoveryChecker(
-                self.settings.ditto_base_url,
-                self.settings.ditto_username,
-                self.settings.ditto_password,
-            ),
-            audit=self.repository.record_audit,
-            consume_approval=self.repository.consume_approval,
-        )
-        run = runner.execute(experiment, experiment.get("approval"), baseline)
+        candidate = {key: value for key, value in experiment.items() if key not in _STORED_ENRICHMENT_KEYS}
+        return candidate, experiment.get("approval"), baseline
+
+    def record_operator_run(self, run: dict[str, Any]) -> list[dict[str, Any]]:
+        """Persist a run from the operator CLI together with its deterministic findings."""
+        findings = generate_findings(run)
         self.repository.save_run(run)
-        self.repository.save_findings(run["run_id"], generate_findings(run))
-        return run
+        self.repository.save_findings(run["run_id"], findings)
+        return findings
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.repository.list_runs(limit)

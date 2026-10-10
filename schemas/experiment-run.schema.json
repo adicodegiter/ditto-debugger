@@ -22,6 +22,16 @@
     "recovery_time_seconds": { "type": "number", "minimum": 0 },
     "baseline_valid": { "type": "boolean" },
     "score_components": { "type": "object" },
-    "resilience_score": { "type": "object" }
+    "resilience_score": { "type": "object" },
+    "timeline": { "type": "object", "additionalProperties": { "type": "string", "format": "date-time" } },
+    "watchdog": { "type": "object", "properties": { "armed": { "type": "boolean" }, "deadline": { "type": "string", "format": "date-time" } } },
+    "error_detail": { "type": "string" },
+    "baseline_write_p95_ms": { "type": ["number", "null"] },
+    "forced_test": { "type": "boolean" },
+    "forced_test_rule": { "type": "string" },
+    "forced_test_passed": { "type": "boolean" },
+    "dry_run": { "type": "boolean" },
+    "dry_run_commands": { "type": "array", "items": { "type": "string" } },
+    "findings": { "type": "array", "items": { "type": "object" } }
   }
 }
