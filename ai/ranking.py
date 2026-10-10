@@ -92,19 +92,46 @@ def render_markdown(ranked: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def load_run_files(paths: list[str]) -> list[dict[str, Any]]:
+    """Read run-record JSON files; refuse anything that is not a real, non-dry run with a run_id."""
+    import json
+    from pathlib import Path
+    runs = []
+    for raw in paths:
+        path = Path(raw)
+        if not path.is_file():
+            raise SystemExit(f"Run record not found: {path}. Records live in data/experiments/ (git-ignored); copy the JSON from the machine that ran it.")
+        try:
+            run = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as error:
+            raise SystemExit(f"Run record is not valid JSON: {path} ({error})")
+        if not isinstance(run, dict) or not run.get("run_id"):
+            raise SystemExit(f"Not a run record (no run_id): {path}")
+        runs.append(run)
+    return runs
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Print ranked findings from the local run store (read-only).")
+    parser = argparse.ArgumentParser(description="Print ranked findings from stored runs or run-record files (read-only).")
     parser.add_argument("--markdown", action="store_true", help="print Markdown instead of JSON")
-    parser.add_argument("--limit", type=int, default=200, help="most recent runs to read")
+    parser.add_argument("--limit", type=int, default=200, help="most recent runs to read from the local store")
+    parser.add_argument("--run-file", action="append", default=[], metavar="PATH",
+                        help="rank this run-record JSON instead of the local store (repeatable); findings are regenerated deterministically")
     args = parser.parse_args()
     import json
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     sys.path[:0] = [str(root), str(root / "backend")]
-    from app.settings import Settings
-    from app.store import LocalRepository
-    repo = LocalRepository(Settings.from_environment().database_path)
-    ranked = rank_findings(repo.list_runs(args.limit), repo.list_findings())
+    if args.run_file:
+        from ai.report import generate_findings
+        runs = load_run_files(args.run_file)
+        findings = [finding for run in runs for finding in generate_findings(run)]
+    else:
+        from app.settings import Settings
+        from app.store import LocalRepository
+        repo = LocalRepository(Settings.from_environment().database_path)
+        runs, findings = repo.list_runs(args.limit), repo.list_findings()
+    ranked = rank_findings(runs, findings)
     print(render_markdown(ranked) if args.markdown else json.dumps(ranked, indent=2))
     return 0
 
