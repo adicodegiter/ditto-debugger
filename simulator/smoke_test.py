@@ -21,7 +21,9 @@ from simulator.config import API, AUTH, DITTO_BASE_URL, NAMESPACE, POLICY_ID, po
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--thing-id", default=f"{NAMESPACE}:vehicle-01", help="thing to create (default: %(default)s)")
+    # Never a fleet vehicle ID: PUT replaces the whole twin, so reusing vehicle-01 would wipe
+    # the workload's telemetry feature and make every fleet write to it return 404.
+    ap.add_argument("--thing-id", default=f"{NAMESPACE}:smoke-test", help="thing to create (default: %(default)s)")
     ap.add_argument("--search-timeout", type=float, default=30.0,
                     help="seconds to wait for the search index to catch up (default: %(default)s)")
     args = ap.parse_args()

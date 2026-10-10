@@ -57,6 +57,14 @@ Audit trail: `safety_preflight_started → fault_started → experiment_aborted 
 
 `injected_at` used to be recorded *after* `docker compose restart` returned (about 8 s after the stop began). The runner also did not mark a fault as injected if the action command failed half-way. In that case only the watchdog, not the runner, would have restarted the target. Both are fixed in the same PR: the fault is marked injected and timestamped **before** the command runs, and there is a test for the half-failed command. Recovery times above are measured from rollback and are unaffected.
 
+## After the runs: a test collision (not a Ditto issue)
+
+At 10:03:53, *after* both runs had finished, a post-run `smoke_test.py` replaced the twin `bosch.fleet:vehicle-01`, which is also a fleet vehicle, with a battery-only twin. That made every later fleet write to it return 404 (about 14 per minute until the workload ended at 10:15). The workload's end-of-run summary therefore reports 7.7% write errors and an inflated freshness value. **Neither run is affected:** both finished by 10:03:28, and their records show 0% write errors.
+
+The workload's summary also computes staleness against the current time for failed freshness reads that have no measured value, so those values keep growing. It reported 255 s, while the largest measured staleness was 10 s. That needs fixing on the P3 side (`monitor/sli.py`).
+
+**Fix:** the smoke test now uses its own twin `bosch.fleet:smoke-test`, and a test enforces that it never uses a fleet vehicle ID.
+
 ## M4 checklist (CLAUDE.md)
 
 - [x] One short, approved, isolated experiment on `things-search`, with rollback and a max duration

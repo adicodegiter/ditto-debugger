@@ -73,6 +73,9 @@ class DeployTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("usage:", result.stdout)
+        # The smoke test replaces its whole twin, so it must never use a fleet vehicle ID.
+        self.assertIn("smoke-test", result.stdout)
+        self.assertNotIn("vehicle-", result.stdout)
         sys.path.insert(0, str(ROOT))
         try:
             from simulator import config
