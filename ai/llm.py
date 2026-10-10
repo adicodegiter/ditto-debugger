@@ -27,6 +27,9 @@ ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 
+PLACEHOLDER_PREFIX = "INSERT_"  # the template value in .env; counts as "no key"
+
+
 class LLMError(RuntimeError):
     pass
 
@@ -48,7 +51,8 @@ class GroqClient:
     def __init__(self, session: Any = None) -> None:
         load_env()
         self.provider = os.environ.get("AI_PROVIDER", "none").lower()
-        self._key = os.environ.get("GROQ_API_KEY", "")
+        key = os.environ.get("GROQ_API_KEY", "").strip()
+        self._key = "" if key.upper().startswith(PLACEHOLDER_PREFIX) else key
         self.model = os.environ.get("GROQ_MODEL") or DEFAULT_MODEL
         self.max_calls = int(os.environ.get("GROQ_MAX_CALLS", "30"))
         self.calls = 0

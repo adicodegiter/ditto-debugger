@@ -48,6 +48,12 @@ class GroqAdapterTests(unittest.TestCase):
             self.assertEqual(explain_findings(FINDINGS, {"run_id": "r1"}, c), FINDINGS)
             self.assertEqual(c._session.calls, [])
 
+    def test_template_placeholder_key_counts_as_missing(self):
+        c = client(key="INSERT_GROQ_API_KEY_HERE")
+        self.assertFalse(c.available())
+        self.assertEqual(explain_findings(FINDINGS, {"run_id": "r1"}, c), FINDINGS)
+        self.assertEqual(c._session.calls, [])
+
     def test_request_shape_uses_bearer_key_json_mode_and_configured_model(self):
         c = client(GOOD, model="some-model")
         explain_findings(FINDINGS, {"run_id": "r1"}, c)
