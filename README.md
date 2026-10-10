@@ -215,6 +215,16 @@ Run each fault type once on the live stack (restart is already recorded in [docs
 
 The findings report will be in `docs/findings-report.md` and the one-page architecture in `docs/architecture.md` (both Day 2 deliverables). Forced kill-switch tests (`--forced-test`) are labelled and never scored.
 
+## Optional: Groq for finding text (Agent 3)
+
+The findings are deterministic and work with no key. To have Groq rewrite each finding's summary and recommendation:
+
+1. `cp .env.example .env` (the real `.env` is git-ignored; never commit it or put the key in `.env.example`).
+2. In `.env` set `AI_PROVIDER=groq`, paste your key after `GROQ_API_KEY=`, and set `GROQ_MODEL` to a model id from Groq's current list.
+3. Check it: `python -m ai.llm` sends one tiny request (no run data) and prints OK or the failure.
+
+Groq only rewrites the text. Ids, severity, evidence and confidence stay deterministic, dry runs and forced tests are never sent, and any API error, rate limit or malformed reply falls back to the deterministic findings. It has no tools and cannot execute anything.
+
 ## Team Workflow
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md), use the issue forms under `.github/ISSUE_TEMPLATE/`, and make pull requests using `.github/pull_request_template.md`. Work is divided by module ownership and acceptance criteria in [the project blueprint](docs/project-blueprint.md). Do not commit `.env` files, credentials, private logs, Ditto data, or the external upstream checkout.
