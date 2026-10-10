@@ -7,5 +7,6 @@
   "confidence": 1.0,
   "health_url": null,
   "metrics_url": "http://localhost:19095/",
+  "affected_slis": ["service_availability", "error_rate", "p95_latency"],
   "labels": { "ditto_service": "gateway", "environment": "local" }
 }

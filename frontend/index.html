@@ -43,7 +43,7 @@
         <div id="graph-empty" class="empty-state">No deployment manifest discovered. Point <code>DITTO_COMPOSE_FILE</code> at a pinned local Ditto checkout to build the real graph.</div>
         <svg id="architecture-graph" class="architecture-graph" role="img" aria-label="Discovered component graph" hidden></svg>
       </div>
-      <p id="graph-note" class="source-note">Only declared relationships and documented Ditto cluster membership are shown. Shared Docker networks are not treated as runtime calls.</p>
+      <p id="graph-note" class="source-note">Edge style identifies configured or documented evidence; hover for provenance and confidence. Impact paths follow each edge's declared direction, not assumed request flow.</p>
     </section>
 
     <section class="lower-grid">
@@ -62,6 +62,28 @@
           <button id="plan-button" class="button button-primary" type="button">Plan experiments</button>
         </div>
         <div id="plan-results" class="plan-results" aria-live="polite"><p class="muted">No candidates. Planning remains blocked until real topology and healthy telemetry are available.</p></div>
+      </div>
+    </section>
+
+    <section class="activity-section">
+      <div class="section-heading"><div><p class="eyebrow">PLANS / OBSERVED OUTCOMES</p><h2>Experiment activity</h2></div></div>
+      <div class="activity-grid">
+        <section class="activity-column" aria-labelledby="plans-heading">
+          <div class="section-heading"><h3 id="plans-heading">Saved proposals</h3><span id="plan-count" class="quiet-count">0</span></div>
+          <div id="plan-history" class="activity-list" aria-live="polite"><p class="muted">No plans saved yet.</p></div>
+          <label class="approval-field" for="approval-reason">Decision reason
+            <input id="approval-reason" type="text" maxlength="500" autocomplete="off" placeholder="Explain an approval or rejection">
+          </label>
+          <p id="approval-note" class="source-note">Recording approval does not enable fault execution.</p>
+        </section>
+        <section class="activity-column" aria-labelledby="runs-heading">
+          <div class="section-heading"><h3 id="runs-heading">Experiment history</h3><span id="run-count" class="quiet-count">0</span></div>
+          <div id="run-history" class="activity-list" aria-live="polite"><p class="muted">No run results saved.</p></div>
+        </section>
+        <section class="activity-column" aria-labelledby="findings-heading">
+          <div class="section-heading"><h3 id="findings-heading">Findings</h3><span id="finding-count" class="quiet-count">0</span></div>
+          <div id="finding-list" class="activity-list" aria-live="polite"><p class="muted">No findings saved.</p></div>
+        </section>
       </div>
     </section>
 

@@ -85,6 +85,7 @@ class ExperimentPlanningAgent:
 
         candidates.sort(key=lambda item: (-item["selection_score"], item["risk_score"], item["target_component"]))
         return {
+            "schema_version": "1.0",
             "plan_id": f"plan-{hashlib.sha256((graph['graph_version'] + baseline['baseline_id']).encode('utf-8')).hexdigest()[:12]}",
             "ranking_method": "weighted_heuristic_v1",
             "candidates": candidates[:max(1, min(max_candidates, 10))],

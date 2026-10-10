@@ -28,5 +28,5 @@ abort_conditions:
   - error_rate_above_configured_limit
   - experiment_deadline_exceeded
 notes:
-  - This policy is a design-time contract; no chaos runner exists yet.
+  - The runner is opt-in and must be enabled with CHAOS_EXECUTION_ENABLED=true on the local operator machine.
   - Never point a runner at a public, shared, or production deployment.

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Ditto AI Chaos Engineering API
   version: 1.0.0
-  description: Planned loopback-only control-plane API. No server is implemented yet.
+  description: Loopback-only discovery, planning, approval-record, history, and findings API. Fault execution is disabled.
 servers:
   - url: http://127.0.0.1:8000
 paths:
@@ -11,29 +11,33 @@ paths:
       operationId: getAgentStatus
       responses:
         "200":
-          description: Status of the four local specialist agents
+          description: Status of the local specialist agents
+  /api/v1/health:
+    get:
+      operationId: getWorkbenchHealth
+      responses:
+        "200":
+          description: Workbench process health; not a target health check
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
   /api/v1/discovery/refresh:
     post:
       operationId: refreshDiscovery
       responses:
         "200":
           description: Read-only discovery and graph refresh
-  /api/v1/health:
-    get:
-      operationId: getWorkbenchHealth
-      responses:
-        "200":
-          description: Workbench and dependency health summary
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Health"
+                $ref: "./graph.schema.json"
   /api/v1/architecture:
     get:
       operationId: getArchitecture
       responses:
         "200":
-          description: Provenance-labelled component graph
+          description: Versioned provenance-labelled dependency graph
           content:
             application/json:
               schema:
@@ -41,28 +45,33 @@ paths:
   /api/v1/telemetry:
     get:
       operationId: getTelemetry
-      parameters:
-        - name: from
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: to
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
       responses:
         "200":
-          description: Bounded normalized observations and coverage
+          description: Normalized observations and metric coverage
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Telemetry"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
+  /api/v1/baselines:
+    post:
+      operationId: captureBaseline
+      responses:
+        "200":
+          description: Persist a baseline only when graph and telemetry are healthy
+  /api/v1/experiments:
+    get:
+      operationId: listExperiments
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: Saved proposal snapshots and approval states
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlansResponse"
   /api/v1/experiments/plan:
     post:
       operationId: planExperiments
@@ -74,13 +83,15 @@ paths:
               $ref: "#/components/schemas/PlanRequest"
       responses:
         "201":
-          description: Candidates proposed; no fault was executed
+          description: Persisted ranked candidates; no fault is executed
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlanResponse"
+        "404":
+          description: Baseline was not found
         "422":
-          $ref: "#/components/responses/InvalidRequest"
+          description: Architecture or telemetry preconditions are unavailable
   /api/v1/experiments/{experiment_id}:
     parameters:
       - $ref: "#/components/parameters/ExperimentId"
@@ -94,7 +105,21 @@ paths:
               schema:
                 $ref: "./experiment.schema.json"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: Proposal was not found
+  /api/v1/experiments/{experiment_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/ExperimentId"
+    get:
+      operationId: getExperimentStatus
+      responses:
+        "200":
+          description: Record-only approval state; execution remains disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExperimentStatus"
+        "404":
+          description: Proposal was not found
   /api/v1/experiments/{experiment_id}/approval:
     parameters:
       - $ref: "#/components/parameters/ExperimentId"
@@ -108,184 +133,150 @@ paths:
               $ref: "#/components/schemas/ApprovalRequest"
       responses:
         "201":
-          description: Human approval decision recorded; execution has not started
+          description: Human decision recorded; execution has not started
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApprovalResponse"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: Proposal was not found
         "409":
-          $ref: "#/components/responses/Conflict"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
+          description: Candidate hash is stale or a decision already exists
   /api/v1/experiments/{experiment_id}/execute:
     parameters:
       - $ref: "#/components/parameters/ExperimentId"
     post:
       operationId: executeApprovedExperiment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ExecuteRequest"
       responses:
         "503":
-          description: Execution is disabled until the isolated Docker runner is implemented and verified
+          description: Fault execution is disabled until the isolated runner passes its safety gate
+  /api/v1/runs:
+    get:
+      operationId: listExperimentRuns
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: Persisted experiment run history
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "503":
-          $ref: "#/components/responses/Unavailable"
+                $ref: "#/components/schemas/RunHistoryResponse"
   /api/v1/runs/{run_id}:
     parameters:
       - name: run_id
         in: path
         required: true
-        schema:
-          type: string
-          minLength: 1
+        schema: { type: string, minLength: 1 }
     get:
       operationId: getExperimentRun
       responses:
         "200":
-          description: Run prediction, observations, cleanup, and recovery state
+          description: Prediction, observations, cleanup, and recovery record
           content:
             application/json:
               schema:
-                $ref: "./experiment-run.schema.json"
+                $ref: "./result.schema.json"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: Run was not found
   /api/v1/findings:
     get:
       operationId: getFindings
       parameters:
         - name: run_id
           in: query
-          required: true
-          schema:
-            type: string
-            minLength: 1
+          required: false
+          schema: { type: string, minLength: 1 }
       responses:
         "200":
-          description: Findings with evidence and score coverage
+          description: Evidence-backed findings, optionally filtered by run
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/FindingsResponse"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: Run was not found
+  /api/v1/audit:
+    get:
+      operationId: listAuditEvents
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: Safety, execution, cleanup, and recovery audit history
 components:
   parameters:
     ExperimentId:
       name: experiment_id
       in: path
       required: true
-      schema:
-        type: string
-        minLength: 1
+      schema: { type: string, minLength: 1 }
   schemas:
     Health:
       type: object
-      required: [status, dependencies]
+      required: [status, execution_enabled, agents, notes]
       properties:
-        status:
-          enum: [ok, degraded]
-        dependencies:
-          type: object
-          additionalProperties:
-            enum: [ok, unavailable, not_configured]
+        status: { const: ok }
+        execution_enabled: { type: boolean }
+        agents: { type: array, items: { type: object } }
+        notes: { type: array, items: { type: string } }
     Architecture:
-      type: object
-      required: [status, graph_version, nodes, edges, clusters, network_zones]
-      properties:
-        status: { enum: [available, unavailable, partial] }
-        graph_version:
-          type: string
-        nodes:
-          type: array
-          items:
-            $ref: "./service.schema.json"
-        edges:
-          type: array
-          items:
-            type: object
-            required: [source, target, relation, provenance, confidence]
-            properties:
-              source: { type: string }
-              target: { type: string }
-              relation: { type: string }
-              provenance: { type: string }
-              confidence: { type: number, minimum: 0, maximum: 1 }
-              evidence_type: { enum: [static, runtime, documented, operator] }
-              runtime_observed: { type: boolean }
-        clusters:
-          type: array
-          items:
-            type: object
-            required: [id, members, source, confidence, complete]
-            properties:
-              id: { type: string }
-              members: { type: array, items: { type: string } }
-              source: { type: string }
-              confidence: { type: number, minimum: 0, maximum: 1 }
-              complete: { type: boolean }
-        network_zones:
-          type: array
-          items:
-            type: object
-            required: [id, members, source, evidence_type]
-            properties:
-              id: { type: string }
-              members: { type: array, items: { type: string } }
-              source: { type: string }
-              evidence_type: { enum: [static, runtime, documented, operator] }
-        warnings: { type: array, items: { type: string } }
+      $ref: "./graph.schema.json"
+    Inventory:
+      $ref: "./inventory.schema.json"
+    Observation:
+      $ref: "./observation.schema.json"
+    ExperimentResult:
+      $ref: "./result.schema.json"
     Telemetry:
       type: object
-      required: [from, to, observations, coverage]
+      required: [schema_version, status, observed_at, coverage, target_count, healthy_target_count, observations, warnings]
       properties:
-        from: { type: string, format: date-time }
-        to: { type: string, format: date-time }
+        schema_version: { const: "1.0" }
+        status: { enum: [available, degraded, unavailable] }
+        observed_at: { type: string, format: date-time }
+        coverage: { type: number, minimum: 0, maximum: 1 }
+        target_count: { type: integer, minimum: 0 }
+        healthy_target_count: { type: integer, minimum: 0 }
         observations:
           type: array
-          items:
-            type: object
-            required: [metric, value, observed_at, source]
-            properties:
-              metric: { type: string }
-              value: { type: number }
-              observed_at: { type: string, format: date-time }
-              source: { type: string }
-              labels: { type: object, additionalProperties: { type: string } }
-        coverage: { type: number, minimum: 0, maximum: 1 }
+          items: { $ref: "./observation.schema.json" }
+        warnings: { type: array, items: { type: string } }
     PlanRequest:
       type: object
       additionalProperties: false
       required: [baseline_id, max_candidates]
       properties:
-        baseline_id: { type: string, minLength: 1 }
-        max_candidates: { type: integer, minimum: 1, maximum: 10 }
+        baseline_id: { type: string, minLength: 1, maxLength: 100 }
+        max_candidates: { type: integer, minimum: 1, maximum: 10, default: 3 }
     PlanResponse:
+      $ref: "./experiment-plan.schema.json"
+    PlansResponse:
       type: object
-      required: [plan_id, candidates, policy_rejections]
+      required: [plans]
       properties:
-        plan_id: { type: string }
-        candidates:
+        plans:
           type: array
-          items:
-            $ref: "./experiment.schema.json"
-        policy_rejections:
+          items: { $ref: "./experiment-plan.schema.json" }
+    ExperimentStatus:
+      type: object
+      required: [experiment_id, status, approval, execution_enabled]
+      properties:
+        experiment_id: { type: string }
+        status: { enum: [pending, approved, rejected, expired] }
+        approval: { type: [object, "null"] }
+        execution_enabled: { const: false }
+    RunHistoryResponse:
+      type: object
+      required: [runs]
+      properties:
+        runs:
           type: array
-          items: { type: object }
+          items: { $ref: "./result.schema.json" }
     ApprovalRequest:
       type: object
       additionalProperties: false
@@ -293,71 +284,22 @@ components:
       properties:
         decision: { enum: [approve, reject] }
         reason: { type: string, minLength: 1, maxLength: 500 }
-        candidate_hash: { type: string, pattern: "^sha256:" }
+        candidate_hash: { type: string, pattern: "^sha256:[a-f0-9]{64}$" }
     ApprovalResponse:
       type: object
       required: [approval_id, decision, expires_at, candidate_hash]
       properties:
         approval_id: { type: string }
         decision: { enum: [approve, reject] }
+        reason: { type: string }
+        created_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
         candidate_hash: { type: string }
-    ExecuteRequest:
-      type: object
-      additionalProperties: false
-      required: [approval_id]
-      properties:
-        approval_id: { type: string, minLength: 1 }
-    ExecuteResponse:
-      type: object
-      required: [run_id, status]
-      properties:
-        run_id: { type: string }
-        status: { enum: [approved, running] }
+        execution_enabled: { const: false }
     FindingsResponse:
       type: object
-      required: [run_id, findings, score]
+      required: [findings]
       properties:
-        run_id: { type: string }
         findings:
           type: array
-          items:
-            $ref: "./finding.schema.json"
-        score:
-          type: object
-          required: [status, coverage]
-          properties:
-            status: { enum: [complete, incomplete, unsafe] }
-            value: { type: [number, "null"], minimum: 0, maximum: 100 }
-            coverage: { type: number, minimum: 0, maximum: 1 }
-    Error:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string }
-        message: { type: string }
-  responses:
-    InvalidRequest:
-      description: Request validation or deterministic policy rejection
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-    Conflict:
-      description: Stale approval, invalid state, or active experiment conflict
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-    Unavailable:
-      description: Required local dependency or precondition unavailable
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-    NotFound:
-      description: Requested plan, run, or finding set does not exist
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
+          items: { $ref: "./finding.schema.json" }

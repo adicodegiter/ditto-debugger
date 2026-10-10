@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ditto-ai-chaos/schemas/inventory.schema.json",
+  "title": "Discovered deployment inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "components", "relationships", "network_zones", "source_files", "warnings"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "status": { "enum": ["available", "unavailable", "partial"] },
+    "components": { "type": "array", "items": { "$ref": "./service.schema.json" } },
+    "relationships": { "type": "array", "items": { "$ref": "./graph.schema.json#/$defs/edge" } },
+    "network_zones": { "type": "array", "items": { "$ref": "./graph.schema.json#/$defs/networkZone" } },
+    "source_files": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

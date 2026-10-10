@@ -14,6 +14,14 @@
     "prediction": { "type": "object" },
     "observations": { "type": "array", "items": { "type": "object" } },
     "cleanup_state": { "enum": ["not_started", "required", "complete", "failed"] },
-    "safety_violation": { "type": "boolean", "default": false }
+    "safety_violation": { "type": "boolean", "default": false },
+    "abort_reason": { "type": "string" },
+    "error": { "type": "string" },
+    "recovery": { "type": "object" },
+    "recovery_verified": { "type": "boolean" },
+    "recovery_time_seconds": { "type": "number", "minimum": 0 },
+    "baseline_valid": { "type": "boolean" },
+    "score_components": { "type": "object" },
+    "resilience_score": { "type": "object" }
   }
 }

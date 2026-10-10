@@ -33,6 +33,7 @@
       }
     },
     "health_checks": { "type": "array", "items": { "type": "object" } },
-    "labels": { "type": "object", "additionalProperties": { "type": "string" } }
+    "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "affected_slis": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
   }
 }

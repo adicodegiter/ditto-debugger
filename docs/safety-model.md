@@ -23,7 +23,7 @@ Approval is necessary but not sufficient: all deterministic checks still run at 
 - Recovery: verify container running/healthy, `/alive` returns healthy for the service, and API canary succeeds. Record recovery time and any incomplete cleanup. If Docker/host failure prevents automatic recovery, require the operator to run the documented Compose `up -d` recovery command before continuing.
 - Result data is synthetic. Before each run, verify test data namespace and cleanup plan. Preserve enough history for repeatable evaluation; do not purge arbitrary namespaces.
 
-The local-only settings in [experiment-policy.yaml](../configs/experiment-policy.yaml) are a design contract, not an implemented enforcement mechanism. Revalidate all thresholds after the first resource/health preflight. A safety violation blocks a score and triggers manual review.
+The local-only settings in [experiment-policy.yaml](../configs/experiment-policy.yaml) are enforced by the deterministic `safety/` package. Revalidate all thresholds after the first resource/health preflight. A safety violation blocks a score and triggers manual review.
 
 ## Scenario Catalog
 

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ditto-ai-chaos/schemas/result.schema.json",
+  "title": "Experiment result",
+  "$ref": "./experiment-run.schema.json"
+}

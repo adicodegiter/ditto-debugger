@@ -39,7 +39,7 @@ The upstream Ditto module paths and the custom workbench code map are in [Ditto 
   - the Ditto v2 API paths (`/api/2/policies`, `/api/2/things`, `/api/2/search/things`)
   - the policy body with the `nginx:ditto` subject
   - the `mongo:7.0.14` tag
-- The Docker chaos runner, Prometheus preflight and diagnosis agent are not implemented yet. The execute endpoint returns `503` by design.
+- The Docker chaos runner is implemented as an opt-in local process with fixed Compose actions, approval, cleanup, recovery, kill-switch, and audit gates. The execute endpoint returns `503` unless `CHAOS_EXECUTION_ENABLED=true` is explicitly set on the operator machine.
 - Team repository: https://github.com/adicodegiter/ditto-debugger
 
 ## Prerequisites

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ditto-ai-chaos/schemas/graph.schema.json",
+  "title": "Versioned dependency graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "graph_version", "created_at", "nodes", "edges", "clusters", "network_zones", "criticality", "impact_paths", "source_files", "warnings"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "status": { "enum": ["available", "unavailable", "partial"] },
+    "graph_version": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          { "$ref": "./service.schema.json" },
+          { "required": ["affected_slis"] }
+        ]
+      }
+    },
+    "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "clusters": { "type": "array", "items": { "$ref": "#/$defs/cluster" } },
+    "network_zones": { "type": "array", "items": { "$ref": "#/$defs/networkZone" } },
+    "criticality": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["configured_dependents", "relative_score", "evidence_type"],
+        "properties": {
+          "configured_dependents": { "type": "integer", "minimum": 0 },
+          "relative_score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "evidence_type": { "enum": ["static", "runtime", "documented", "operator"] }
+        }
+      }
+    },
+    "impact_paths": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["impacted_component", "path", "edges"],
+          "properties": {
+            "impacted_component": { "type": "string", "minLength": 1 },
+            "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } }
+          }
+        }
+      }
+    },
+    "source_files": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "edge": {
+      "type": "object",
+      "required": ["source", "target", "relation", "provenance", "provenance_type", "impact_direction", "confidence", "evidence_type", "runtime_observed"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "relation": { "type": "string", "minLength": 1 },
+        "provenance": { "type": "string", "minLength": 1 },
+        "provenance_type": { "enum": ["documented", "configured", "runtime-observed", "manual"] },
+        "impact_direction": { "enum": ["forward", "reverse", "bidirectional", "none"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence_type": { "enum": ["static", "runtime", "documented", "operator"] },
+        "runtime_observed": { "type": "boolean" }
+      }
+    },
+    "cluster": {
+      "type": "object",
+      "required": ["id", "members", "source", "confidence", "complete", "relationship"],
+      "properties": {
+        "id": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "complete": { "type": "boolean" },
+        "relationship": { "type": "string" }
+      }
+    },
+    "networkZone": {
+      "type": "object",
+      "required": ["id", "members", "source", "evidence_type"],
+      "properties": {
+        "id": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string" },
+        "evidence_type": { "enum": ["static", "runtime", "documented", "operator"] }
+      }
+    }
+  }
+}

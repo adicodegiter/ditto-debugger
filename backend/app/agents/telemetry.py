@@ -27,6 +27,7 @@ class TelemetryObservation:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": "1.0",
             "metric": self.metric,
             "value": self.value,
             "observed_at": self.observed_at,
@@ -104,6 +105,7 @@ class TelemetryObservabilityAgent:
         has_jvm_metric = any(query.startswith("jvm_") for query in metric_families)
         status = "available" if len(healthy_targets) == len(target_observations) and has_request_metric and has_jvm_metric else "degraded"
         return {
+            "schema_version": "1.0",
             "status": status,
             "observed_at": datetime.now(timezone.utc).isoformat(),
             "coverage": coverage,
@@ -129,6 +131,7 @@ class TelemetryObservabilityAgent:
     @staticmethod
     def _unavailable(reason: str) -> dict[str, Any]:
         return {
+            "schema_version": "1.0",
             "status": "unavailable",
             "observed_at": datetime.now(timezone.utc).isoformat(),
             "coverage": 0.0,

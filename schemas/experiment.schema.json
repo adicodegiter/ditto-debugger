@@ -18,6 +18,21 @@
     "evidence_refs": { "type": "array", "items": { "type": "string" } },
     "approval_required": { "const": true },
     "selection_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "candidate_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "approval_status": { "enum": ["pending", "approved", "rejected", "expired"] },
+    "approval": {
+      "type": ["object", "null"],
+      "properties": {
+        "approval_id": { "type": "string" },
+        "decision": { "enum": ["approve", "reject"] },
+        "reason": { "type": "string" },
+        "candidate_hash": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "execution_enabled": { "const": false }
+      }
+    },
     "score_terms": {
       "type": "object",
       "additionalProperties": false,

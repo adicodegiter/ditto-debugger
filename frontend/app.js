@@ -3,6 +3,7 @@ const graphSvg = document.querySelector("#architecture-graph");
 const graphEmpty = document.querySelector("#graph-empty");
 const planResults = document.querySelector("#plan-results");
 const baselineInput = document.querySelector("#baseline-id");
+const planHistory = document.querySelector("#plan-history");
 
 const escapeText = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -35,29 +36,34 @@ function renderGraph(graph) {
   }
   graphEmpty.hidden = true;
   graphSvg.hidden = false;
-  const width = Math.max(graphSvg.clientWidth, 640);
+  const width = Math.max(graphSvg.clientWidth, 320);
   const rowHeight = 86;
-  const height = Math.max(210, nodes.length * rowHeight + 40);
+  const columns = width < 620 ? 1 : 2;
+  const columnWidth = width / columns;
+  const nodeWidth = Math.min(220, columnWidth - 48);
+  const height = Math.max(210, Math.ceil(nodes.length / columns) * rowHeight + 40);
   graphSvg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  const positions = new Map(nodes.map((node, index) => [node.id, { x: 40 + (index % 2) * (width / 2), y: 34 + Math.floor(index / 2) * rowHeight }]));
+  const positions = new Map(nodes.map((node, index) => [node.id, { x: 24 + (index % columns) * columnWidth, y: 34 + Math.floor(index / columns) * rowHeight, width: nodeWidth }]));
   const edges = graph.edges || [];
   const edgeMarkup = edges.map((edge) => {
     const from = positions.get(edge.source);
     const to = positions.get(edge.target);
     if (!from || !to) return "";
-    return `<line class="graph-link ${edge.evidence_type === "static" ? "static" : ""}" x1="${from.x + 220}" y1="${from.y + 25}" x2="${to.x}" y2="${to.y + 25}" marker-end="url(#arrow)"/>`;
+    const provenance = `${edge.provenance_type || edge.evidence_type} · ${edge.provenance} · confidence ${edge.confidence}`;
+    return `<g class="graph-edge"><title>${escapeText(provenance)}</title><line class="graph-link ${escapeText(edge.provenance_type || "")}" x1="${from.x + from.width}" y1="${from.y + 32}" x2="${to.x}" y2="${to.y + 32}" marker-end="url(#arrow)"/></g>`;
   }).join("");
   const nodeMarkup = nodes.map((node) => {
     const point = positions.get(node.id);
-    return `<g class="graph-node" transform="translate(${point.x},${point.y})"><rect width="220" height="52"/><text x="12" y="21">${escapeText(node.name)}</text><text class="node-kind" x="12" y="39">${escapeText(node.kind)} · ${escapeText(node.source)}</text></g>`;
+    const affectedSlis = (node.affected_slis || []).join(", ");
+    return `<g class="graph-node" transform="translate(${point.x},${point.y})"><title>SLIs: ${escapeText(affectedSlis)}</title><rect width="${point.width}" height="64"/><text x="12" y="21">${escapeText(node.name)}</text><text class="node-kind" x="12" y="39">${escapeText(node.kind)} · ${escapeText(node.source)}</text><text class="node-slis" x="12" y="55" textLength="${Math.max(80, point.width - 24)}" lengthAdjust="spacingAndGlyphs">${escapeText(affectedSlis)}</text></g>`;
   }).join("");
   const clusterMarkup = (graph.clusters || []).map((cluster) => {
     const points = cluster.members.map((member) => positions.get(member)).filter(Boolean);
     if (!points.length) return "";
     const left = Math.max(12, Math.min(...points.map((point) => point.x)) - 12);
     const top = Math.max(10, Math.min(...points.map((point) => point.y)) - 19);
-    const right = Math.min(width - 12, Math.max(...points.map((point) => point.x + 232)) + 12);
-    const bottom = Math.max(...points.map((point) => point.y + 65)) + 10;
+    const right = Math.min(width - 12, Math.max(...points.map((point) => point.x + point.width + 12)) + 12);
+    const bottom = Math.max(...points.map((point) => point.y + 77)) + 10;
     return `<rect class="graph-cluster" x="${left}" y="${top}" width="${right - left}" height="${bottom - top}"/><text class="graph-cluster-label" x="${left + 8}" y="${top + 13}">${escapeText(cluster.id)} (${cluster.complete ? "complete" : "partial documentation match"})</text>`;
   }).join("");
   graphSvg.innerHTML = `<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#758c86"/></marker></defs>${clusterMarkup}${edgeMarkup}${nodeMarkup}`;
@@ -87,6 +93,68 @@ function renderPlan(plan) {
     </article>`).join("");
 }
 
+function renderSavedPlans(plans) {
+  const entries = plans.flatMap((plan) => (plan.candidates || []).map((candidate) => ({ plan, candidate })));
+  document.querySelector("#plan-count").textContent = String(entries.length);
+  if (!entries.length) {
+    planHistory.innerHTML = '<p class="muted">No plans saved yet.</p>';
+    return;
+  }
+  planHistory.innerHTML = entries.map(({ plan, candidate }) => {
+    const status = candidate.approval_status || "pending";
+    const approval = candidate.approval;
+    return `<article class="proposal-row">
+      <div class="activity-title"><strong>${escapeText(candidate.target_component)} / ${escapeText(candidate.action)}</strong><span class="state-tag ${status === "approved" ? "state-approved" : ""}">${escapeText(status)}</span></div>
+      <p>${escapeText(candidate.hypothesis)}</p>
+      <p class="activity-meta">Plan ${escapeText(plan.plan_id)} · ${escapeText(plan.created_at || "")}</p>
+      ${approval ? `<p class="activity-meta">${escapeText(approval.decision)}: ${escapeText(approval.reason)}</p>` : ""}
+      ${status === "pending" ? `<div class="proposal-actions"><button class="button button-secondary" type="button" data-experiment-id="${escapeText(candidate.id)}" data-candidate-hash="${escapeText(candidate.candidate_hash)}" data-decision="approve">Approve</button><button class="button button-secondary" type="button" data-experiment-id="${escapeText(candidate.id)}" data-candidate-hash="${escapeText(candidate.candidate_hash)}" data-decision="reject">Reject</button></div>` : ""}
+    </article>`;
+  }).join("");
+}
+
+function renderRuns(runs) {
+  document.querySelector("#run-count").textContent = String(runs.length);
+  const list = document.querySelector("#run-history");
+  if (!runs.length) {
+    list.innerHTML = '<p class="muted">No run results saved.</p>';
+    return;
+  }
+  list.innerHTML = runs.map((run) => `
+    <article class="run-row">
+      <div class="activity-title"><strong>${escapeText(run.experiment_id)}</strong><span class="state-tag">${escapeText(run.status)}</span></div>
+      <p class="activity-meta">${escapeText(run.run_id)} · ${escapeText(run.created_at)}</p>
+      <div class="comparison-grid"><div><h4>Predicted</h4><pre>${escapeText(JSON.stringify(run.prediction || {}, null, 2))}</pre></div><div><h4>Observed</h4><pre>${escapeText(JSON.stringify(run.observations || [], null, 2))}</pre></div></div>
+    </article>`).join("");
+}
+
+function renderFindings(findings) {
+  document.querySelector("#finding-count").textContent = String(findings.length);
+  const list = document.querySelector("#finding-list");
+  if (!findings.length) {
+    list.innerHTML = '<p class="muted">No findings saved.</p>';
+    return;
+  }
+  list.innerHTML = findings.map((finding) => `
+    <article class="finding-row">
+      <div class="activity-title"><strong>${escapeText(finding.summary)}</strong><span class="state-tag">${escapeText(finding.severity)}</span></div>
+      <p>${escapeText(finding.recommendation)}</p>
+      <p class="activity-meta">${escapeText(finding.run_id)} · confidence ${Math.round(Number(finding.confidence) * 100)}%</p>
+      <ul>${(finding.evidence || []).map((item) => `<li>${escapeText(item)}</li>`).join("")}</ul>
+    </article>`).join("");
+}
+
+async function loadSavedRecords() {
+  const [plans, runs, findings] = await Promise.all([
+    getJson("/api/v1/experiments"),
+    getJson("/api/v1/runs"),
+    getJson("/api/v1/findings"),
+  ]);
+  renderSavedPlans(plans.plans);
+  renderRuns(runs.runs);
+  renderFindings(findings.findings);
+}
+
 async function loadDashboard() {
   document.querySelector("#refresh-button").disabled = true;
   try {
@@ -99,6 +167,7 @@ async function loadDashboard() {
     renderGraph(graph);
     renderTelemetry(telemetry);
     document.querySelector("#baseline-button").disabled = graph.status !== "available" || telemetry.status !== "available";
+    await loadSavedRecords();
   } catch (error) {
     agentList.innerHTML = `<p class="muted">${escapeText(error.message)}</p>`;
   } finally {
@@ -139,8 +208,34 @@ document.querySelector("#plan-button").addEventListener("click", async () => {
       body: JSON.stringify({ baseline_id: baselineInput.value.trim(), max_candidates: 3 }),
     });
     renderPlan(plan);
+    await loadSavedRecords();
   } catch (error) {
     planResults.innerHTML = `<p class="muted">${escapeText(error.message)}</p>`;
+  }
+});
+
+planHistory.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-experiment-id]");
+  if (!button) return;
+  const reason = document.querySelector("#approval-reason").value.trim();
+  const note = document.querySelector("#approval-note");
+  if (!reason) {
+    note.textContent = "Enter a reason before recording a decision.";
+    return;
+  }
+  button.disabled = true;
+  try {
+    await getJson(`/api/v1/experiments/${encodeURIComponent(button.dataset.experimentId)}/approval`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision: button.dataset.decision, reason, candidate_hash: button.dataset.candidateHash }),
+    });
+    note.textContent = `Decision recorded. Fault execution remains disabled.`;
+    await loadSavedRecords();
+  } catch (error) {
+    note.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 });
 

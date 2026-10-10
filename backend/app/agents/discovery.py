@@ -15,6 +15,15 @@ DITTO_ROLES = {
     "connectivity": "Connectivity",
 }
 
+RELATION_IMPACT_DIRECTIONS = {
+    "compose_depends_on": "reverse",
+    "configured_database_host": "reverse",
+    "kubernetes_service_selector": "reverse",
+    "pekko_cluster_communication": "bidirectional",
+    "documented_persistence": "reverse",
+    "documented_search_projection": "forward",
+}
+
 SAFE_KUBERNETES_LABELS = {
     "app",
     "app.kubernetes.io/name",
@@ -65,11 +74,14 @@ class Relationship:
     runtime_observed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        evidence_types = {"static": "configured", "runtime": "runtime-observed", "documented": "documented", "operator": "manual"}
         return {
             "source": self.source,
             "target": self.target,
             "relation": self.relation,
             "provenance": self.provenance,
+            "provenance_type": evidence_types.get(self.evidence_type, "manual"),
+            "impact_direction": RELATION_IMPACT_DIRECTIONS.get(self.relation, "none"),
             "confidence": self.confidence,
             "evidence_type": self.evidence_type,
             "runtime_observed": self.runtime_observed,
@@ -98,6 +110,7 @@ class DiscoveryReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": "1.0",
             "status": self.status,
             "components": [component.to_dict() for component in self.components],
             "relationships": [relationship.to_dict() for relationship in self.relationships],

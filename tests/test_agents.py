@@ -66,9 +66,15 @@ networks:
         self.assertEqual(gateway["health_url"], "http://gateway:7626/alive")
         self.assertEqual(gateway["metrics_url"], "http://gateway:9095/")
         self.assertEqual(gateway["ports"][0]["host_ip"], "127.0.0.1")
+        self.assertEqual(gateway["affected_slis"], ["service_availability", "error_rate", "p95_latency"])
         self.assertNotIn("TOKEN", str(graph))
-        self.assertEqual({edge["relation"] for edge in graph["edges"]}, {"compose_depends_on", "configured_database_host"})
-        self.assertTrue(all(edge["evidence_type"] == "static" and edge["runtime_observed"] is False for edge in graph["edges"]))
+        configured_edges = [edge for edge in graph["edges"] if edge["evidence_type"] == "static"]
+        documented_edges = [edge for edge in graph["edges"] if edge["evidence_type"] == "documented"]
+        self.assertEqual({edge["relation"] for edge in configured_edges}, {"compose_depends_on", "configured_database_host"})
+        self.assertEqual({edge["relation"] for edge in documented_edges}, {"pekko_cluster_communication", "documented_persistence"})
+        self.assertTrue(all(edge["runtime_observed"] is False for edge in graph["edges"]))
+        policy_impact = next(item for item in graph["impact_paths"]["policies"] if item["impacted_component"] == "gateway")
+        self.assertEqual(policy_impact["path"], ["policies", "gateway"])
         self.assertEqual(graph["clusters"][0]["members"], ["gateway", "policies"])
         self.assertFalse(graph["clusters"][0]["complete"])
 
