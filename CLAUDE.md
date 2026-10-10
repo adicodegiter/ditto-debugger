@@ -71,10 +71,12 @@ All samples are JSON Lines in `data/metrics/*.jsonl`, ISO-8601 UTC timestamps.
 | Any experiment | exceeds `max_duration_s` | — |
 
 ## Allowed fault types (predefined control-plane actions only)
-First: container restart/stop of `things-search` (M4). Then: container pause, MongoDB CPU
-throttle (`docker update --cpus`), network delay inside a target container's namespace,
-traffic burst via the workload, capped disk fill in our MongoDB volume (rollback deletes it).
-Combined failures are a Day-2 stretch goal.
+Done: container restart/stop of `things-search` (M4). Day 2 (on `feat/m5-fault-catalog`):
+`pause_container` (compose pause/unpause), `cpu_throttle` (`docker update --cpu-quota`, the
+only action that may target `mongodb`), `traffic_burst` (bounded extra workload against
+nginx, auto-stops at its cap). MongoDB stays out of routine fault injection. Later, if time
+allows: network delay inside a target container's namespace, capped disk fill in our MongoDB
+volume (rollback deletes it). Combined failures are a Day-2 stretch goal.
 
 ## Repo layout
 ```
@@ -104,17 +106,18 @@ TOOLS.md            # tools, libraries, AI models (for the team form)
 | P4 | Planner + analyst (Agent 3), diagnosis, findings report |
 | P5 | Control plane: policy, runner, kill-switch wiring, rollback, resilience score |
 
-## Current status (`main`, 2026-10-10 evening)
+## Current status (2026-10-10 evening; Day 2 plan in `docs/day2-plan.md`)
 | Item | Status |
 |---|---|
 | M0: pinned Ditto 3.9.8 (`deploy/image-pins.env`, `deploy/ditto/`), loopback-only ports | Done; `health_check.sh` and `smoke_test.py` (own twin `bosch.fleet:smoke-test`) pass |
-| M1: discovery + graph + `ai/dependency_map.json` + `docs/dependency-map.md` | Done (`python -m ai.dependency_map`); image/port variables resolved from the pins |
-| M2: workload + baseline from SLI samples (`POST /api/v1/baselines`, `safety.cli baseline`) | Works live. SSE freshness, concurrent probes and run-scoped 120 s baselines are in progress (PR #8 / follow-up) |
+| M1: discovery + graph + `ai/dependency_map.json` + `docs/dependency-map.md` | Done (`python -m ai.dependency_map`); 8 components, 18 edges, each with a source |
+| M2: workload, three SLIs, 120 s run-scoped baseline, SSE freshness, concurrent probes | Done (PR #8); baselines of 238 and 682 write samples, 0% errors |
 | M3: safety gate | Done: live kill switch (2 s polls, policy-only limits), watchdog, fixed actions, typed approvals, API `execute` always 503, dry run |
 | M4: real `things-search` restart + forced kill-switch abort | Done; evidence in `docs/m4-results.md` |
-| M5: 3+ fault types, predicted vs observed | Pending. Only restart/stop exist; P4 diagnosis (PR #5) must read real run records |
-| M6: resilience score, findings report, demo | Pending. `safety/scoring.py` exists but nothing sets `score_components` yet |
-| Tests | 72 passing (`python -m unittest discover -s tests`) |
+| Dashboard (PR #11, five views) | Merged; not yet checked against the live stack (task 6.4) |
+| M5: 3+ fault types, predicted vs observed, ranked findings | In progress on `feat/m5-fault-catalog` (not merged): pause, CPU throttle, burst (5.1/5.2), PR #5 diagnosis merged and wired to real run records (5.3), per-action SLI predictions (5.4). Pending: three live runs (5.5), findings (5.6), remediation re-run (5.7) |
+| M6: resilience score, findings report, deliverables | Pending. `safety/scoring.py` exists but nothing sets `score_components` yet (6.1); `docs/architecture.md` outdated (6.3); `docs/findings-report.md` not started (6.2) |
+| Tests | 114 passing on `feat/m5-fault-catalog` (90 on `main` before it) (`python -m unittest discover -s tests`) |
 
 **How to run an experiment:** `docs/m4-runbook.md` (`safety.cli baseline → plan → approve → execute [--dry-run|--forced-test]`).
 Only the operator CLI executes; it needs `CHAOS_EXECUTION_ENABLED=true` and an approval typed by a human.
@@ -132,8 +135,15 @@ first (+2 s per connection).
 | M2 | Bootstrap + workload live; baseline (120 s minimum, 10 min preferred) with full coverage; SSE freshness replaces the poll proxy | Day 1 afternoon |
 | M3 | Kill switch wired to the runner in dry-run; rollback implemented; forbidden-action tests pass; then lift the 503 | Day 1 late afternoon |
 | M4 | One real `things-search` restart/stop with rollback and max duration, plus a forced abort proving the kill switch | **Day 1 evening (brief's Day-1 minimum)** |
-| M5 | 3+ fault types; predicted vs observed; ranked findings with fixes | Day 2 morning |
-| M6 | Resilience score, report, README demo, architecture page, video, team form, submit 30 min early | Day 2 afternoon |
+| M5 | 3+ fault types; predicted vs observed; ranked findings with fixes (tasks 5.1–5.7 in `docs/day2-plan.md`) | Day 2 morning |
+| M6 | Resilience score, findings report, README Day 2 steps, architecture page, video, team form, submit 30 min early (tasks 6.1–6.8) | Day 2 afternoon |
+
+**Day 2 critical path:** 5.1 (pause), 5.2 (burst), 5.3 (diagnosis on real runs) in parallel →
+5.4 (per-SLI predictions) → **5.5 three live runs** (restart, pause, burst; each with fresh
+baseline, dry run, typed approval) → findings 5.6 + remediation re-run 5.7 + score 6.1 →
+report 6.2 → README 6.5 / video 6.6 → final merge 6.8. 6.3 (architecture page) and 6.7 (team
+form, draft in `docs/team-form.md`) have no dependencies. P1 owns 5.3 merge, 6.5, 6.7, 6.8 and keeps the stack healthy
+(`deploy/health_check.sh` before each run).
 
 If the stack is not healthy with the workload running by 13:00 on Day 1, fall back to
 OWASP crAPI (only deployment, workload and service names change).
