@@ -10,6 +10,9 @@ scope:
 max_concurrent_experiments: 1
 # Hard ceiling for any fault. CLAUDE.md M4 is a 60 s things-search stop.
 max_duration_seconds: 60
+# Action defaults stay below this cap: the kill switch's last poll lands about 1 s after the
+# planned end (it reads the SLI files and container state), so a fault planned at exactly
+# 60 s always aborted with experiment_deadline_exceeded (burst dry run, 2026-10-10).
 max_risk_score: 0.35
 baseline_max_age_seconds: 3600
 target_risk_scores:
@@ -29,7 +32,7 @@ actions:
     cleanup: restart_target
   stop_container:
     enabled: true
-    duration_seconds_default: 60
+    duration_seconds_default: 45
     cleanup: restart_target
   # Freezes every process in the target; rollback unpauses it.
   pause_container:
@@ -42,7 +45,7 @@ actions:
     enabled: true
     targets: [mongodb, things-search]
     cpus: 0.25
-    duration_seconds_default: 60
+    duration_seconds_default: 45
     cleanup: restore_cpu_quota
   # Extra bounded fleet load through the API entry point; ends by itself at the deadline.
   traffic_burst:
@@ -50,7 +53,7 @@ actions:
     targets: [nginx]
     rate_per_second: 10
     vehicles: 16
-    duration_seconds_default: 60
+    duration_seconds_default: 45
     cleanup: stop_burst
 # Kill switch (CLAUDE.md "Kill switch thresholds"). Evaluated every poll_interval_seconds
 # while a fault is active, over the last window_seconds of SLI samples. Limits come only
