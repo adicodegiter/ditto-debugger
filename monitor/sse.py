@@ -105,6 +105,7 @@ class FreshnessSseSubscriber:
         self.on_event = on_event
         self.read_timeout_s = read_timeout_s
         self._latest: dict[str, str] = {}
+        self._latest_freshness: dict[str, float] = {}
         self._error: str | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -119,6 +120,10 @@ class FreshnessSseSubscriber:
             self._thread.join(timeout=2)
 
     def sample(self, vehicle_id: str) -> dict[str, Any]:
+        """Staleness of the vehicle's latest change, measured when it arrived on the stream."""
+        freshness = self._latest_freshness.get(vehicle_id)
+        if freshness is not None:
+            return {"success": True, "observed_at": self._latest.get(vehicle_id), "freshness_seconds": freshness}
         observed_at = self._latest.get(vehicle_id)
         if observed_at is None:
             return {"success": False, "error": self._error or "SSENoTelemetryEvent"}
@@ -160,8 +165,11 @@ class FreshnessSseSubscriber:
                         last_seen = _find_last_seen(event)
                         if vehicle_id in self.vehicle_ids and last_seen:
                             self._latest[vehicle_id] = last_seen
+                            record = arrival_record(vehicle_id, last_seen)
+                            if record.get("success"):
+                                self._latest_freshness[vehicle_id] = record["freshness_seconds"]
                             if self.on_event is not None:
-                                self.on_event(arrival_record(vehicle_id, last_seen))
+                                self.on_event(record)
                         if self._stop.is_set():
                             return
             except (requests.RequestException, OSError) as error:

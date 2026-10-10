@@ -35,7 +35,9 @@ class MeasurementSliTests(unittest.TestCase):
         self.assertTrue(sample["success"])
         self.assertEqual(sample["freshness_seconds"], 0.012)
 
-    def test_baseline_artifact_maps_healthy_to_available(self):
+    def test_saved_baseline_file_alone_never_becomes_the_baseline(self):
+        # A saved file is written when a run *ends*; while a new run is going it would describe
+        # the previous run. Baselines come only from the live samples of the latest run.
         with tempfile.TemporaryDirectory() as directory:
             metrics = Path(directory) / "metrics"
             metrics.mkdir()
@@ -50,8 +52,9 @@ class MeasurementSliTests(unittest.TestCase):
                 "summary": summary,
             }), encoding="utf-8")
             baseline = baseline_from_metrics(metrics)
-        self.assertEqual(baseline["status"], "available")
-        self.assertEqual(baseline["baseline_id"], "baseline-run")
+        self.assertEqual(baseline["status"], "unavailable")
+        self.assertTrue(baseline["warnings"])
+
     def test_container_metrics_capture_is_local_and_jsonl(self):
         completed = Mock(returncode=0, stdout='{"Name":"ditto-things-search-1","CPUPerc":"2.5%","MemPerc":"1%"}\n', stderr="")
         with tempfile.TemporaryDirectory() as directory, patch("monitor.container.subprocess.run", return_value=completed) as run:
