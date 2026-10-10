@@ -40,26 +40,26 @@ and video. 6.3 (architecture page) and 6.7 (team form) have no dependencies and 
 
 | # | Task | Owner | Helps | Needs | Done when | Status |
 |---|---|---|---|---|---|---|
-| 5.1 | `pause_container` (compose pause/unpause) as a fixed action: policy entry, rollback, kill-switch path, tests for forbidden targets and over-limit durations | P5 | P3 | – | Tests pass; dry run prints the exact commands | On `feat/m5-fault-catalog` (also `cpu_throttle`), not merged |
-| 5.2 | Bounded traffic burst (`--burst-rate`, `--burst-seconds`, hard cap, auto-stop), callable as a control-plane action | P3 | P5 | – | Burst stops by itself at its cap; samples still land in JSONL | `traffic_burst` action on `feat/m5-fault-catalog` (samples in `data/metrics-burst/`), not merged |
-| 5.3 | Rebase and merge PR #5; diagnosis reads real run records (`write_error_rate`, `recovery_verified`, `recovery_time_seconds`) | P4 | P1 merges | – | Diagnosis of the M4 run record matches its numbers | Done on `feat/m5-fault-catalog`: runner records diagnosed on save; M4 run gives write p95 19.6 ms, 0% write errors, recovery 4.188 s (matches `docs/m4-results.md`) |
-| 5.4 | Planner per-SLI predictions (`predicted_slis`: hold / degrade / fail) per fault type; schema field added | P4 | P2 (schema review) | 5.1 | Each candidate shows predictions; schema tests pass | On `feat/m5-fault-catalog`, not merged |
+| 5.1 | `pause_container` (compose pause/unpause) as a fixed action: policy entry, rollback, kill-switch path, tests for forbidden targets and over-limit durations | P5 | P3 | – | Tests pass; dry run prints the exact commands | Done: merged in #12 (`pause_container`, plus `cpu_throttle`); tests in `tests/test_fault_catalog.py` |
+| 5.2 | Bounded traffic burst (`--burst-rate`, `--burst-seconds`, hard cap, auto-stop), callable as a control-plane action | P3 | P5 | – | Burst stops by itself at its cap; samples still land in JSONL | Done: `traffic_burst` merged in #12; separate burst twins (`vehicle-101`+) in #14 |
+| 5.3 | Rebase and merge PR #5; diagnosis reads real run records (`write_error_rate`, `recovery_verified`, `recovery_time_seconds`) | P4 | P1 merges | – | Diagnosis of the M4 run record matches its numbers | Done: merged in #12; M4 run gives write p95 19.6 ms, 0% write errors, recovery 4.188 s (matches `docs/m4-results.md`) |
+| 5.4 | Planner per-SLI predictions (`predicted_slis`: hold / degrade / fail) per fault type; schema field added | P4 | P2 (schema review) | 5.1 | Each candidate shows predictions; schema tests pass | Done: merged in #12 |
 | 5.5 | Run the three experiments live: restart (done), pause, burst. Each: fresh baseline, dry run, typed approval, execute | P5 runs | P3 watches SLIs; P1 keeps stack up; a human approves | 5.1–5.4 | Three run records in `data/experiments/`, each with recovery verified or an abort reason | Done 2026-10-10: restart (M4), pause `run-370897363c60`, burst `run-4083aa7e13a1`; see `docs/m5-results.md` |
-| 5.6 | Ranked findings from the three runs; measured facts separate from hypotheses; each with a fix and a validation test | P4 | P3 (numbers) | 5.5 | Ordered by severity; every claim linked to a run | Pending |
+| 5.6 | Ranked findings from the three runs; measured facts separate from hypotheses; each with a fix and a validation test | P4 | P3 (numbers) | 5.5 | Ordered by severity; every claim linked to a run | Done: `ai/ranking.py` merged in #16 (`python -m ai.ranking --markdown --run-file ...`); records in `docs/evidence/windows-host/` (#21) |
 | 5.7 | Remediation re-run: keep the 3 s search timeout (PR #8), re-run the `things-search` restart, compare before/after | P3 | P4 records, P5 runs | 5.5 | Before/after numbers for the search hang in the report | Done 2026-10-10: `run-a09cb1bcbb7c`; failing search 10.0 s → 3.0 s; see `docs/m5-results.md` |
 
 ## M6: score, deliverables, submission (Day 2 afternoon)
 
 | # | Task | Owner | Helps | Needs | Done when | Status |
 |---|---|---|---|---|---|---|
-| 6.1 | Resilience score: fill `score_components` (availability, latency, recovery, containment, detection) from real measurements in the runner | P5 | P4 | 5.5 | Each non-forced run has a complete score with its inputs shown | Pending |
-| 6.2 | Findings report `docs/findings-report.md`: ranked weaknesses, measured evidence, fixes, re-test result, score | P4 | P3, P5 | 5.6, 5.7, 6.1 | Every number traces to a run record | Pending |
-| 6.3 | One-page architecture overview: rewrite `docs/architecture.md` (three agents, control plane, safety gates, how the AI decides) | P2 | P4 | – | Fits one page; diagram matches the code | Pending (current page still shows Prometheus, no agents) |
+| 6.1 | Resilience score: fill `score_components` (availability, latency, recovery, containment, detection) from real measurements in the runner | P5 | P4 | 5.5 | Each non-forced run has a complete score with its inputs shown | Done: score derived from real measurements (#15) with its raw inputs in `score_inputs` (#19) |
+| 6.2 | Findings report `docs/findings-report.md`: ranked weaknesses, measured evidence, fixes, re-test result, score | P4 | P3, P5 | 5.6, 5.7, 6.1 | Every number traces to a run record | **Pending (P4).** Not written yet. PR #17 adds a findings *contract* doc at this path; it should move so the real report can go here |
+| 6.3 | One-page architecture overview: rewrite `docs/architecture.md` (three agents, control plane, safety gates, how the AI decides) | P2 | P4 | – | Fits one page; diagram matches the code | Rewritten on `main` (agents, control plane, safety gates); check it fits one page |
 | 6.4 | Check the dashboard (PR #11) on the live stack: topology, proposals, approvals, runs, SLIs, findings | P2 | P3 | 5.5 | Every view shows real data; nothing hardcoded | Done: all five views checked on the live stack (API and rendered pages), 4 defects fixed; see [dashboard-check.md](dashboard-check.md). Live SLI panel needs the workload running |
-| 6.5 | README Day 2 run steps; refresh `CLAUDE.md` status | P1 | everyone sends one line | 6.2 | A newcomer can follow it end to end | README "Day 2" section and `CLAUDE.md` status done; refresh again after 6.2 |
-| 6.6 | Demo video, 3 min or less: fault injected, SLIs drop, kill switch or rollback, findings | P3 | P5 runs the fault, P2 dashboard | 5.5, 6.4 | Uploaded; link in README | Pending |
-| 6.7 | Team form: members, tools, AI models, libraries, data | P1 | all check their part | – | Submitted | Draft in `docs/team-form.md` (tools, models, libraries, data); members to confirm, then submit |
-| 6.8 | Final merge, full test run, submit 30 min early | P1 | all | all | Tests green on `main`; submission confirmed | Pending |
+| 6.5 | README Day 2 run steps; refresh `CLAUDE.md` status | P1 | everyone sends one line | 6.2 | A newcomer can follow it end to end | Done: README status, Day 2 newcomer walkthrough and `CLAUDE.md` status refreshed (P1). Add the report and video links when they land |
+| 6.6 | Demo video, 3 min or less: fault injected, SLIs drop, kill switch or rollback, findings | P3 | P5 runs the fault, P2 dashboard | 5.5, 6.4 | Uploaded; link in README | **Pending (P3).** Not recorded yet |
+| 6.7 | Team form: members, tools, AI models, libraries, data | P1 | all check their part | – | Submitted | Draft updated in `docs/team-form.md` (roles from git history, Groq). Each person confirms their row; P1 submits |
+| 6.8 | Final merge, full test run, submit 30 min early | P1 | all | all | Tests green on `main`; submission confirmed | Checklist below. Last code merge left: #17 (green on top of `main` with the ranking fix in the P1 wrap-up PR) |
 
 ## Who does what
 
@@ -83,11 +83,25 @@ and video. 6.3 (architecture page) and 6.7 (team form) have no dependencies and 
 
 | # | Deliverable | Status | Missing | Owner |
 |---|---|---|---|---|
-| 1 | Public repo + README (setup and run) | Mostly there | Day 2 steps added; final refresh after the report | P1 |
-| 2 | Demo video, 3 min or less | Not started | Needs the three experiments; record on the Windows host | P3 |
-| 3 | One-page architecture overview | Outdated | `docs/architecture.md` rewrite | P2 |
-| 4 | Findings report | Not started | `docs/findings-report.md` | P4 |
-| 5 | Team form | Draft ready (`docs/team-form.md`) | Members confirm their row, then submit | P1 |
+| 1 | Public repo + README (setup and run) | Ready | Report and video links once they exist | P1 |
+| 2 | Demo video, 3 min or less | Not started | Record on the Windows host: fault injected, SLIs drop, rollback, findings | P3 |
+| 3 | One-page architecture overview | Rewritten | Check it fits one page and matches the code | P2 |
+| 4 | Findings report | Not started | `docs/findings-report.md` from the ranked findings, `docs/m5-results.md` and the scores | P4 |
+| 5 | Team form | Draft ready (`docs/team-form.md`) | Members confirm their row, then P1 submits | P1 |
+
+## 6.8 Final checklist (P1)
+
+Do these in order, and submit at least 30 minutes before the deadline.
+
+1. **Merge the last PRs:** #17 (P4) after its findings contract doc moves off `docs/findings-report.md`;
+   then the findings report (6.2). Merge `main` into each branch first.
+2. **Full test run on `main`:** `python -m unittest discover -s tests` must be all OK.
+3. **Stack check:** `bash deploy/health_check.sh` (OVERALL: HEALTHY) and `python simulator/smoke_test.py` (5/5).
+4. **Deliverables present:** README, `docs/architecture.md` (one page), `docs/findings-report.md`,
+   the video link in the README, `docs/team-form.md` with every row confirmed.
+5. **No secrets:** no `.env`, keys or `data/` files committed (`git status` clean; CI `secret-scan` green).
+6. **Repo is public**, and the README's setup steps work from a fresh clone.
+7. **Submit** the team form and the repo link; keep the confirmation.
 
 ## Rules that do not bend
 
