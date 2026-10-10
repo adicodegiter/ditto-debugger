@@ -1,12 +1,12 @@
-"""Generate the dependency map (M1): ai/dependency_map.json and docs/dependency-map.md.
+"""Regenerate and check the dependency map (M1).
 
-Ditto nodes and edges come from the discovery and mapping agents, which read the pinned
-compose file plus image pins without executing anything; each keeps its provenance
-(configured / documented). The workbench's own components and their calls are added here
-and labelled ``manual``. Each node carries the SLIs it can affect, derived from Ditto's
-documented request paths (also labelled ``documented``).
+``ai/dependency_map.json`` has one writer: ``tools/export_topology.py``. It holds the
+schema-valid graph from the pinned compose file plus image pins (configured/documented
+edges), the workbench's own components and calls (manual), and the CLAUDE.md SLI tags
+(``labels.workbench_slis``). This module runs that export and renders
+``docs/dependency-map.md`` (Mermaid) from the JSON.
 
-    python -m ai.dependency_map            # regenerate both files
+    python -m ai.dependency_map            # regenerate JSON, inventory and the Mermaid page
     python -m ai.dependency_map --check    # exit 1 if the committed files are out of date
 """
 from __future__ import annotations
@@ -15,6 +15,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import tempfile
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,205 +23,127 @@ for entry in (ROOT, ROOT / "backend"):
     if str(entry) not in sys.path:
         sys.path.insert(0, str(entry))
 
-from app.orchestrator import AgentOrchestrator  # noqa: E402
-from app.settings import Settings  # noqa: E402
+from tools.export_topology import DEFAULT_ENV_FILE, SLI_PATHS, export_topology  # noqa: E402
 
+COMPOSE_FILE = ROOT / "deploy" / "ditto" / "docker-compose.yml"
+POLICY_FILE = ROOT / "configs" / "experiment-policy.yaml"
 JSON_PATH = ROOT / "ai" / "dependency_map.json"
+INVENTORY_PATH = ROOT / "data" / "inventory.json"
 DOC_PATH = ROOT / "docs" / "dependency-map.md"
-
-# Request paths per SLI through the Ditto services (Ditto architecture overview: nginx
-# fronts the gateway; the gateway authorizes via policies and routes thing commands to
-# things and search queries to things-search; things and things-search persist in MongoDB).
-SLI_PATHS: dict[str, dict[str, Any]] = {
-    "write": {
-        "path": ["nginx", "gateway", "policies", "things", "mongodb"],
-        "measured_by": "simulator/fleet_workload.py (PUT /api/2/things/{id}/features/telemetry/properties)",
-    },
-    "search": {
-        "path": ["nginx", "gateway", "policies", "things-search", "mongodb"],
-        "measured_by": "simulator/fleet_workload.py (GET /api/2/search/things)",
-    },
-    "freshness": {
-        "path": ["nginx", "gateway", "policies", "things", "mongodb"],
-        "measured_by": "simulator/fleet_workload.py (telemetry timestamp read back; SSE when enabled)",
-    },
-}
-
-MANUAL_NODES = [
-    {"id": "fleet-workload", "kind": "workbench", "name": "Fleet workload + SLI probes", "module": "simulator/fleet_workload.py",
-     "purpose": "Writes vehicle telemetry and probes the write, search and freshness SLIs into data/metrics/*.jsonl"},
-    {"id": "workbench-api", "kind": "workbench", "name": "Workbench API + agents", "module": "backend/app",
-     "purpose": "Discovery, mapping, baseline, planning, approval records (never executes faults)"},
-    {"id": "operator-cli", "kind": "control_plane", "name": "Operator CLI + runner + kill switch", "module": "safety/",
-     "purpose": "Runs approved experiments with steady-state check, live kill switch, rollback and recovery check"},
-    {"id": "watchdog", "kind": "control_plane", "name": "Independent watchdog", "module": "safety/watchdog.py",
-     "purpose": "Restarts the target at the deadline even if the runner dies"},
-    {"id": "docker-compose", "kind": "platform", "name": "Docker Compose (project 'ditto')", "module": "deploy/ditto",
-     "purpose": "Container lifecycle for the pinned stack; the only fault-injection surface"},
-]
-
-MANUAL_EDGES = [
-    ("fleet-workload", "nginx", "http", "telemetry writes (write SLI)"),
-    ("fleet-workload", "nginx", "http", "fleet search queries (search SLI)"),
-    ("fleet-workload", "nginx", "http/sse", "read back telemetry timestamps (freshness SLI)"),
-    ("workbench-api", "data-metrics", "file", "baseline from SLI samples"),
-    ("fleet-workload", "data-metrics", "file", "append SLI samples (JSON Lines)"),
-    ("operator-cli", "data-metrics", "file", "kill-switch observations (last 30 s window)"),
-    ("operator-cli", "docker-compose", "cli", "preflight, fixed fault action, rollback (allow-listed targets only)"),
-    ("operator-cli", "watchdog", "process", "arm before injection, disarm after clean rollback"),
-    ("watchdog", "docker-compose", "cli", "deadline cleanup: start target"),
-    ("operator-cli", "nginx", "http", "recovery check: /health + authenticated canary"),
-    ("docker-compose", "things-search", "cli", "restart/stop target (experiments)"),
-    ("docker-compose", "gateway", "cli", "restart/stop target (experiments)"),
-]
+VOLATILE_KEYS = ("created_at",)  # differs on every export; ignored by --check
 
 
-def _relative(path: Path) -> str:
-    try:
-        return Path(path).resolve().relative_to(ROOT).as_posix()
-    except ValueError:
-        return Path(path).as_posix()
+def _export(json_path: Path, inventory_path: Path) -> dict[str, Any]:
+    env_files = (DEFAULT_ENV_FILE,) if DEFAULT_ENV_FILE.is_file() else ()
+    _, graph = export_topology(COMPOSE_FILE, inventory_path, json_path, POLICY_FILE, env_files)
+    return graph
 
 
-def _slis_for(node_id: str) -> list[str]:
-    return sorted(sli for sli, spec in SLI_PATHS.items() if node_id in spec["path"])
+def _node_id(value: str) -> str:
+    return value.replace("-", "_")
 
 
-def build(settings: Settings) -> dict[str, Any]:
-    orchestrator = AgentOrchestrator(settings)
-    graph = orchestrator.discover_architecture()
-    if graph.get("status") != "available":
-        raise SystemExit("No deployment manifest discovered; refusing to write a fabricated dependency map.")
-    nodes: list[dict[str, Any]] = []
-    for node in sorted(graph["nodes"], key=lambda item: item["id"]):
-        nodes.append({
-            "id": node["id"],
-            "kind": node["kind"],
-            "image": node.get("image"),
-            "ports": [f"{port['host_ip']}:{port['host_port']}->{port['container_port']}/{port['protocol']}"
-                      for port in node.get("ports", []) if port.get("host_port")],
-            "health": node.get("health_url"),
-            "slis": _slis_for(node["id"]),
-            "provenance_type": "configured",
-            "provenance": f"compose:{node['id']}",
-        })
-    for node in MANUAL_NODES:
-        nodes.append({**node, "slis": [], "provenance_type": "manual", "provenance": "manual: workbench component"})
-    nodes.append({"id": "data-metrics", "kind": "storage", "name": "data/metrics/*.jsonl", "slis": [],
-                  "provenance_type": "manual", "provenance": "manual: workbench component"})
-
-    edges: list[dict[str, Any]] = []
-    for edge in sorted(graph["edges"], key=lambda item: (item["source"], item["target"], item["relation"])):
-        edges.append({
-            "source": edge["source"],
-            "target": edge["target"],
-            "relation": edge["relation"],
-            "provenance_type": edge.get("provenance_type"),
-            "provenance": edge.get("provenance"),
-            "impact_direction": edge.get("impact_direction"),
-            "runtime_observed": edge.get("runtime_observed", False),
-        })
-    for source, target, protocol, purpose in MANUAL_EDGES:
-        edges.append({"source": source, "target": target, "relation": "calls", "protocol": protocol, "purpose": purpose,
-                      "provenance_type": "manual", "provenance": "manual: workbench design", "runtime_observed": False})
-
-    return {
-        "schema_version": "1.0",
-        "graph_version": graph.get("graph_version"),
-        "sources": [_relative(settings.compose_file), _relative(settings.image_pins_file)],
-        "sli_paths": {sli: {**spec, "provenance_type": "documented", "provenance": "Ditto architecture overview: request routing"}
-                      for sli, spec in SLI_PATHS.items()},
-        "nodes": nodes,
-        "edges": edges,
-        "notes": [
-            "Ditto edges are static (configured from compose or documented by Ditto); none is runtime-observed yet.",
-            "Docker network membership alone is not treated as an application call.",
-            "manual = workbench components and calls written by this team, not discovered from a manifest.",
-        ],
-    }
+def _is_manual(node: dict[str, Any]) -> bool:
+    return node.get("labels", {}).get("provenance_type") == "manual"
 
 
-def to_mermaid(dependency_map: dict[str, Any]) -> str:
-    def node_id(value: str) -> str:
-        return value.replace("-", "_")
-
-    lines = ["flowchart LR"]
-    groups = {"ditto": [], "workbench": []}
-    for node in dependency_map["nodes"]:
-        label = node["id"]
-        if node["slis"]:
-            label += "<br/><small>" + ", ".join(node["slis"]) + "</small>"
-        groups["ditto" if node["provenance_type"] != "manual" else "workbench"].append(f'    {node_id(node["id"])}["{label}"]')
-    lines.append('  subgraph ditto["Ditto 3.9.8 (from compose)"]')
-    lines += groups["ditto"]
+def to_mermaid(graph: dict[str, Any]) -> str:
+    lines = ["flowchart LR", '  subgraph ditto["Ditto 3.9.8 (from the pinned compose file)"]']
+    for node in graph["nodes"]:
+        if not _is_manual(node):
+            slis = node.get("labels", {}).get("workbench_slis", "")
+            label = node["id"] + (f"<br/><small>{slis.replace(',', ', ')}</small>" if slis else "")
+            lines.append(f'    {_node_id(node["id"])}["{label}"]')
+    lines += ["  end", '  subgraph workbench["Workbench (manual)"]']
+    for node in graph["nodes"]:
+        if _is_manual(node):
+            lines.append(f'    {_node_id(node["id"])}["{node["id"]}"]')
     lines.append("  end")
-    lines.append('  subgraph workbench["Workbench (manual)"]')
-    lines += groups["workbench"]
-    lines.append("  end")
+    arrows = {"configured": "-->", "documented": "-.->", "manual": "==>", "runtime-observed": "-->"}
     seen: set[tuple[str, str, str]] = set()
-    for edge in dependency_map["edges"]:
-        style = {"configured": "-->", "documented": "-.->", "manual": "==>"}.get(edge["provenance_type"], "-->")
-        label = edge.get("protocol") or edge["relation"].replace("_", " ")
+    for edge in graph["edges"]:
+        label = edge["relation"].replace("_", " ")
         key = (edge["source"], edge["target"], label)
         if key in seen:
             continue
         seen.add(key)
-        lines.append(f'  {node_id(edge["source"])} {style}|{label}| {node_id(edge["target"])}')
+        lines.append(f'  {_node_id(edge["source"])} {arrows.get(edge["provenance_type"], "-->")}|{label}| {_node_id(edge["target"])}')
     return "\n".join(lines)
 
 
-def to_markdown(dependency_map: dict[str, Any]) -> str:
-    rows = "\n".join(
-        f"| `{node['id']}` | {node['kind']} | {', '.join(node['slis']) or '—'} | {node['provenance_type']} |"
-        for node in dependency_map["nodes"]
+def to_markdown(graph: dict[str, Any]) -> str:
+    def ports(node: dict[str, Any]) -> str:
+        published = [f"{p['host_ip']}:{p['host_port']}→{p['container_port']}" for p in node.get("ports", []) if p.get("host_port")]
+        return ", ".join(published) or "—"
+
+    ditto_rows = "\n".join(
+        f"| `{n['id']}` | {n['kind']} | `{n.get('image') or '—'}` | {ports(n)} | {n.get('labels', {}).get('workbench_slis', '—').replace(',', ', ')} | {', '.join(n.get('affected_slis', []))} |"
+        for n in graph["nodes"] if not _is_manual(n)
     )
-    paths = "\n".join(
-        f"| {sli} | {' → '.join(spec['path'])} | {spec['measured_by']} |" for sli, spec in dependency_map["sli_paths"].items()
+    workbench_rows = "\n".join(
+        f"| `{n['id']}` | `{n['labels'].get('module', '')}` | {n['labels'].get('purpose', '')} |"
+        for n in graph["nodes"] if _is_manual(n)
     )
+    path_rows = "\n".join(f"| {sli} | {' → '.join(path)} |" for sli, path in SLI_PATHS.items())
+    counts: dict[str, int] = {}
+    for edge in graph["edges"]:
+        counts[edge["provenance_type"]] = counts.get(edge["provenance_type"], 0) + 1
+    count_text = ", ".join(f"{value} {key}" for key, value in sorted(counts.items()))
     return f"""# Dependency Map
 
-Generated by `python -m ai.dependency_map` from the pinned compose file and image pins. Do not edit by hand.
-Machine-readable version: [`ai/dependency_map.json`](../ai/dependency_map.json).
+Generated by `python -m ai.dependency_map` from [`ai/dependency_map.json`](../ai/dependency_map.json). That file is written by
+`tools/export_topology.py` from the pinned compose file and `deploy/image-pins.env`. Do not edit either file by hand.
 
-Edge styles: solid = **configured** (compose), dotted = **documented** (Ditto architecture), thick = **manual** (workbench components).
+**Edges:** {count_text}. In the diagram, solid lines are **configured** (compose), dotted lines are **documented** (Ditto architecture), and thick lines are **manual** (workbench components). No edge is claimed as runtime-observed.
 
 ```mermaid
-{to_mermaid(dependency_map)}
+{to_mermaid(graph)}
 ```
 
 ## Which SLI depends on which service
 
-| SLI | Request path | Measured by |
+| SLI | Request path |
+|---|---|
+{path_rows}
+
+## Ditto services
+
+`Workbench SLIs` are the three CLAUDE.md SLIs (from the request paths above). `Affected metric families` come from the mapping agent.
+
+| Service | Kind | Image | Published ports | Workbench SLIs | Affected metric families |
+|---|---|---|---|---|---|
+{ditto_rows}
+
+## Workbench components (manual)
+
+| Component | Module | Purpose |
 |---|---|---|
-{paths}
-
-## Nodes
-
-| Node | Kind | SLIs it can affect | Provenance |
-|---|---|---|---|
-{rows}
-
-{chr(10).join('- ' + note for note in dependency_map['notes'])}
+{workbench_rows}
 """
+
+
+def _stable(graph: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in graph.items() if key not in VOLATILE_KEYS}
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="exit 1 if the committed files are out of date")
     args = parser.parse_args(argv)
-    dependency_map = build(Settings.from_environment())
-    json_text = json.dumps(dependency_map, indent=2) + "\n"
-    doc_text = to_markdown(dependency_map)
     if args.check:
-        current = (JSON_PATH.read_text(encoding="utf-8") if JSON_PATH.is_file() else "", DOC_PATH.read_text(encoding="utf-8") if DOC_PATH.is_file() else "")
-        if current != (json_text, doc_text):
+        with tempfile.TemporaryDirectory() as directory:
+            fresh = _export(Path(directory) / "dependency_map.json", Path(directory) / "inventory.json")
+        committed = json.loads(JSON_PATH.read_text(encoding="utf-8")) if JSON_PATH.is_file() else {}
+        doc = DOC_PATH.read_text(encoding="utf-8") if DOC_PATH.is_file() else ""
+        if _stable(fresh) != _stable(committed) or doc != to_markdown(committed):
             print("Dependency map is out of date: run python -m ai.dependency_map", file=sys.stderr)
             return 1
         print("Dependency map is up to date.")
         return 0
-    JSON_PATH.write_text(json_text, encoding="utf-8", newline="\n")
-    DOC_PATH.write_text(doc_text, encoding="utf-8", newline="\n")
-    print(f"Wrote {JSON_PATH.relative_to(ROOT)} ({len(dependency_map['nodes'])} nodes, {len(dependency_map['edges'])} edges) and {DOC_PATH.relative_to(ROOT)}")
+    graph = _export(JSON_PATH, INVENTORY_PATH)
+    DOC_PATH.write_text(to_markdown(graph), encoding="utf-8", newline="\n")
+    print(f"Wrote {JSON_PATH.relative_to(ROOT).as_posix()} ({len(graph['nodes'])} nodes, {len(graph['edges'])} edges), "
+          f"{INVENTORY_PATH.relative_to(ROOT).as_posix()} and {DOC_PATH.relative_to(ROOT).as_posix()}")
     return 0
 
 
