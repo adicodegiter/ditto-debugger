@@ -1,6 +1,9 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from ai.ranking import measured_facts, rank_findings, render_markdown
+from ai.ranking import load_run_files, measured_facts, rank_findings, render_markdown
 from ai.report import generate_findings
 
 
@@ -52,6 +55,36 @@ class RankingTests(unittest.TestCase):
         text = render_markdown(ranked)
         self.assertIn("Measured facts", text)
         self.assertIn("Validation test", text)
+
+EVIDENCE = Path(__file__).resolve().parents[1] / "docs" / "evidence" / "mac-local"
+
+
+class SharedRunRecordTests(unittest.TestCase):
+    def test_load_run_files_explains_missing_and_invalid_records(self):
+        with self.assertRaises(SystemExit) as missing:
+            load_run_files(["/nonexistent/run.json"])
+        self.assertIn("git-ignored", str(missing.exception))
+        with tempfile.TemporaryDirectory() as tmp:
+            bad, norun = Path(tmp, "bad.json"), Path(tmp, "norun.json")
+            bad.write_text("not json")
+            norun.write_text("{}")
+            for path in (bad, norun):
+                with self.assertRaises(SystemExit):
+                    load_run_files([str(path)])
+
+    def test_shared_mac_records_are_real_runs_and_rank_with_sourced_facts(self):
+        files = sorted(EVIDENCE.glob("run-*.json"))
+        self.assertEqual(len(files), 2)
+        runs = load_run_files([str(f) for f in files])
+        for record in runs:
+            self.assertFalse(record.get("dry_run") or record.get("forced_test"))
+            self.assertIn(record["status"], {"completed", "aborted"})
+        ranked = rank_findings(runs, [f for r in runs for f in generate_findings(r)])
+        self.assertEqual({item["run_id"] for item in ranked}, {r["run_id"] for r in runs})
+        self.assertTrue(all(fact["source"].startswith("run:") for item in ranked for fact in item["measured_facts"]))
+        aborted = next(r for r in runs if r["status"] == "aborted")
+        self.assertEqual(aborted["abort_reason"], "p95_latency_above_baseline_multiplier")
+        self.assertTrue(any(f["fact"] == "kill switch abort reason" for item in ranked if item["run_id"] == aborted["run_id"] for f in item["measured_facts"]))
 
 
 if __name__ == "__main__":
