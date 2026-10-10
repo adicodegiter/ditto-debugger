@@ -99,6 +99,19 @@ python simulator/fleet_workload.py --duration-seconds 120 --metrics-dir data/met
 python -m monitor.cli --metrics-dir data/metrics
 ```
 
+Burst traffic uses separate twins so it cannot contaminate the normal fleet's SSE freshness
+measurements. The P5 traffic-burst action passes `--vehicles 16 --vehicle-offset 100`,
+which targets `bosch.fleet:vehicle-101` through `vehicle-116` instead of `vehicle-01`
+through `vehicle-08`.
+
+To summarize before, during, and after phases, restrict the monitor to an ISO-8601 window:
+
+```bash
+python -m monitor.cli --metrics-dir data/metrics --run-id <RUN_ID> --from <BEFORE_START> --to <FAULT_START>
+python -m monitor.cli --metrics-dir data/metrics --run-id <RUN_ID> --from <FAULT_START> --to <ROLLBACK_TIME>
+python -m monitor.cli --metrics-dir data/metrics --run-id <RUN_ID> --from <ROLLBACK_TIME> --to <RECOVERY_END>
+```
+
 The workload records JSON Lines in `data/metrics/*.jsonl`:
 - **Concurrent probes:** write, search and freshness each run in their own thread with their own HTTP session, so a hung probe can't stall the others. Timeouts are 5 s for writes and 3 s for search and freshness reads, so a down service shows up as fast failures.
 - **Freshness via SSE (default):** each telemetry change is timed when it arrives on Ditto's SSE stream (`received_at − last_seen`). `--freshness-method poll-proxy` falls back to reading values back, and those records are labelled as such.

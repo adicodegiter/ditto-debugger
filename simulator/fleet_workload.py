@@ -157,7 +157,9 @@ def _run_sse_freshness_probe(subscriber: FreshnessSseSubscriber, vehicle_id: str
     }
 
 
-def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, duration_seconds: float = 120.0, rate_per_second: float = 2.0, metrics_dir: str | Path = "data/metrics", capture_containers: bool = True, freshness_method: str = "sse") -> dict:
+def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, vehicle_offset: int = 0, duration_seconds: float = 120.0, rate_per_second: float = 2.0, metrics_dir: str | Path = "data/metrics", capture_containers: bool = True, freshness_method: str = "sse") -> dict:
+    if vehicle_offset < 0 or vehicle_offset + vehicles > 999:
+        raise ValueError("vehicle_offset must be >= 0 and offset + vehicles <= 999")
     metrics_path = Path(metrics_dir)
     metrics_path.mkdir(parents=True, exist_ok=True)
     api_base = _resolve_api_base(base_url)
@@ -172,7 +174,10 @@ def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, dur
         raise RuntimeError(f"Unable to create the fleet policy ({policy_response.status_code}): {policy_response.text}")
 
     deadline = time.monotonic() + float(duration_seconds)
-    vehicle_ids = [f"{NAMESPACE}:vehicle-{idx:02d}" for idx in range(1, vehicles + 1)]
+    vehicle_ids = [
+        f"{NAMESPACE}:vehicle-{idx:02d}"
+        for idx in range(vehicle_offset + 1, vehicle_offset + vehicles + 1)
+    ]
     for vehicle_id in vehicle_ids:
         _ensure_vehicle(session, vehicle_id, api_base)
     stop = threading.Event()
@@ -237,6 +242,7 @@ def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, dur
         "run_id": run_id,
         "base_url": base_url,
         "vehicles": vehicles,
+        "vehicle_offset": vehicle_offset,
         "duration_seconds": duration_seconds,
         "rate_per_second": rate_per_second,
         "captured_at": utc_timestamp(),
@@ -270,6 +276,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--base-url", default=DITTO_BASE_URL, help="Ditto HTTP base URL")
     parser.add_argument("--vehicles", type=int, default=8, help="number of fleet vehicles to exercise")
+    parser.add_argument("--vehicle-offset", type=int, default=0, help="first vehicle number minus one; use 100 for burst traffic to avoid the measured fleet")
     parser.add_argument("--duration-seconds", type=float, default=120.0, help="how long to run the workload")
     parser.add_argument("--rate-per-second", type=float, default=2.0, help="average update/search rate per second")
     parser.add_argument("--metrics-dir", type=Path, default=Path("data/metrics"), help="where to write JSON Lines metric files")
@@ -284,12 +291,16 @@ def main() -> int:
         summary = run_fleet_workload(
             base_url=args.base_url,
             vehicles=args.vehicles,
+            vehicle_offset=args.vehicle_offset,
             duration_seconds=args.duration_seconds,
             rate_per_second=args.rate_per_second,
             metrics_dir=args.metrics_dir,
             capture_containers=not args.no_container_metrics,
             freshness_method=args.freshness_method,
         )
+    except ValueError as error:
+        print(f"invalid workload option: {error}", file=sys.stderr)
+        return 2
     except requests.RequestException as error:
         print(f"workload failed: {error}", file=sys.stderr)
         return 2
