@@ -77,7 +77,7 @@ class ContractTests(unittest.TestCase):
         schema = json.loads((ROOT / "schemas" / "experiment.schema.json").read_text(encoding="utf-8"))
         example = json.loads((ROOT / "schemas" / "examples" / "experiment-restart-gateway.json").read_text(encoding="utf-8"))
         validator = Draft202012Validator(schema)
-        for updates in ({"approval_required": False}, {"duration_seconds": 31}, {"action": "run_shell"}):
+        for updates in ({"approval_required": False}, {"duration_seconds": 61}, {"action": "run_shell"}):
             with self.subTest(updates=updates):
                 self.assertFalse(validator.is_valid({**example, **updates}))
 

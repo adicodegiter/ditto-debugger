@@ -14,16 +14,20 @@ Running list for the team submission form. Add an entry whenever you introduce s
 |---|---|---|
 | Docker Desktop / Docker Engine | 24.0.6 | Runs the target stack |
 | Docker Compose | v2.23.0 | Stack orchestration |
-| Python | 3.12 (3.11+ supported) | Backend, agents, workload, probes |
+| Python | 3.12.4 (3.11+ supported) | Backend, agents, workload, probes |
 | Git | 2.39 | Version control |
+| GitHub | – | Team repo, pull requests |
 
 ## Python libraries
 | Library | Purpose |
 |---|---|
-| FastAPI, uvicorn | Workbench API (loopback only) |
-| PyYAML | Compose/config parsing |
-| requests | Workload generator, smoke test |
-| httpx, jsonschema | Tests and contract validation (dev) |
+| FastAPI 0.116, uvicorn 0.36 | Workbench API (loopback only) |
+| PyYAML 6.0 | Compose/config parsing |
+| requests 2.32 | Workload generator, probes, smoke test |
+| httpx 0.27, jsonschema 4.23 | Tests and contract validation (dev) |
+| Python standard library (`sqlite3`, `unittest`, `subprocess`, `threading`) | Run/approval store, tests, fixed Docker commands, concurrent probes |
+
+The dashboard (`frontend/`) is plain HTML, CSS and JavaScript with no third-party libraries.
 
 ## AI models
 | Model | Where used | Notes |
@@ -34,3 +38,12 @@ Running list for the team submission form. Add an entry whenever you introduce s
 | Tool | Purpose |
 |---|---|
 | Claude Code (Claude Opus 5.5) | Scaffolding, Ditto deployment, scripts |
+
+## Data used
+| Data | Source | Notes |
+|---|---|---|
+| Fleet telemetry (vehicle twins with `speed_kph` and `last_seen`) | Generated locally by `simulator/fleet_workload.py` | Synthetic; no real vehicles, no personal data |
+| SLI samples, baselines, run records | Produced by our own probes and runner (`data/metrics/`, `data/baselines/`, `data/experiments/`) | Local only, gitignored |
+| Ditto deployment files and nginx assets | Upstream Eclipse Ditto 3.9.8 `deployment/docker` (vendored in `deploy/ditto/`) | EPL-2.0; sample basic-auth user `ditto:ditto`, loopback only |
+
+No external datasets, cloud services or public endpoints are used.

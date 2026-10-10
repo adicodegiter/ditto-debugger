@@ -351,7 +351,7 @@ $("#plan-button").addEventListener("click", async () => {
   if (!baselineId) { results.innerHTML = '<p class="muted">Capture a baseline first.</p>'; return; }
   results.innerHTML = '<p class="muted">Ranking evidence-backed candidates…</p>';
   try {
-    const plan = await getJson("/api/v1/experiments/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ baseline_id: baselineId, max_candidates: 3 }) });
+    const plan = await getJson("/api/v1/experiments/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ baseline_id: baselineId, max_candidates: 6 }) });
     results.innerHTML = plan.candidates?.length
       ? `<p class="muted">${plan.candidates.length} candidate(s) saved as ${escapeText(plan.plan_id)}. Review them under Proposals.</p>${(plan.policy_rejections || []).map((r) => `<p class="activity-meta">Not planned: ${escapeText(r.target)} — ${escapeText(r.reason)}</p>`).join("")}`
       : `<p class="muted">No candidates. ${escapeText(plan.policy_rejections?.[0]?.reason || "")}</p>`;

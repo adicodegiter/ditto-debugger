@@ -37,7 +37,7 @@ from safety.watchdog import ProcessWatchdog  # noqa: E402
 class NoopWatchdog:
     """Dry runs change nothing, so there is nothing for a watchdog to undo."""
 
-    def arm(self, target: str, deadline_epoch: float) -> None:
+    def arm(self, target: str, deadline_epoch: float, action: str = "restart_container", state: Any = None) -> None:
         return None
 
     def disarm(self, handle: Any) -> None:
@@ -150,8 +150,9 @@ def cmd_execute(args: argparse.Namespace) -> int:
     if args.dry_run:
         run["dry_run"] = True
         run["dry_run_commands"] = [" ".join(command) for command in docker.commands]
+        run["diagnosis"] = orchestrator.diagnose_run(run, candidate, baseline)  # shown, never recorded
     else:
-        run["findings"] = orchestrator.record_operator_run(run)
+        run["findings"] = orchestrator.record_operator_run(run, candidate, baseline)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     suffix = ("-dry-run" if args.dry_run else "") + ("-forced-test" if args.forced_test else "")
@@ -173,7 +174,7 @@ def _parser() -> argparse.ArgumentParser:
 
     plan = sub.add_parser("plan", help="rank candidate experiments for a baseline")
     plan.add_argument("baseline_id")
-    plan.add_argument("--max-candidates", type=int, default=3)
+    plan.add_argument("--max-candidates", type=int, default=6)
     plan.set_defaults(handler=cmd_plan)
 
     approve = sub.add_parser("approve", help="record a human approval for one immutable candidate")

@@ -20,8 +20,9 @@ class RunnerError(RuntimeError):
 
 class DockerAdapter(Protocol):
     def preflight(self, target: str) -> None: ...
-    def apply(self, action: str, target: str) -> None: ...
-    def start(self, target: str) -> None: ...
+    def capture(self, action: str, target: str) -> dict[str, Any]: ...
+    def apply(self, action: str, target: str, params: dict[str, Any] | None = None, state: dict[str, Any] | None = None) -> None: ...
+    def rollback(self, action: str, target: str, state: dict[str, Any] | None = None) -> None: ...
 
 
 class ObservationProvider(Protocol):
@@ -33,7 +34,7 @@ class RecoveryChecker(Protocol):
 
 
 class Watchdog(Protocol):
-    def arm(self, target: str, deadline_epoch: float) -> Any: ...
+    def arm(self, target: str, deadline_epoch: float, action: str = "restart_container", state: dict[str, Any] | None = None) -> Any: ...
     def disarm(self, handle: Any) -> None: ...
 
 
@@ -169,9 +170,15 @@ class ExperimentRunner:
                 )
                 fault_switch = KillSwitch(effective_baseline, forced_policy)
 
+            # Capture what the rollback must restore (e.g. the original CPU quota).
+            action_state = self.docker.capture(action, target)
+            run["action_state"] = action_state
+            params = {**self.policy.params_for(action), "duration_seconds": duration}
+            run["action_params"] = params
+
             # Arm the independent watchdog before touching the target.
             deadline_epoch = self.wall_clock() + duration + self.policy.watchdog_grace_seconds
-            watchdog_handle = self.watchdog.arm(target, deadline_epoch)
+            watchdog_handle = self.watchdog.arm(target, deadline_epoch, action, action_state)
             run["watchdog"] = {"armed": True, "deadline": _iso(deadline_epoch)}
 
             # Mark the fault as injected *before* the command runs: `docker compose restart`
@@ -182,7 +189,7 @@ class ExperimentRunner:
             started = self.clock()
             timeline["injected_at"] = _iso(self.wall_clock())
             self.audit("fault_started", {"run_id": run_id, "action": action, "target": target})
-            self.docker.apply(action, target)
+            self.docker.apply(action, target, params, action_state)
             timeline["action_completed_at"] = _iso(self.wall_clock())
 
             # Live kill switch: evaluate every poll interval, roll back on the first abort.
@@ -212,14 +219,22 @@ class ExperimentRunner:
             run["error_detail"] = str(error)[:300]
             self.audit("runner_error", {"run_id": run_id, "error": type(error).__name__})
         finally:
-            rollback_ok = self._rollback(run, target, injected, watchdog_handle)
+            rollback_ok = self._rollback(run, target, injected, watchdog_handle, action, run.get("action_state"))
 
         if injected and rollback_ok:
             self._verify_recovery(run, target, kill_switch)
         run["baseline_valid"] = run.get("baseline_valid", True)
         return run
 
-    def _rollback(self, run: dict[str, Any], target: str, injected: bool, watchdog_handle: Any) -> bool:
+    def _rollback(
+        self,
+        run: dict[str, Any],
+        target: str,
+        injected: bool,
+        watchdog_handle: Any,
+        action: str = "restart_container",
+        action_state: dict[str, Any] | None = None,
+    ) -> bool:
         timeline = run["timeline"]
         if not injected:
             if watchdog_handle is not None:
@@ -227,7 +242,7 @@ class ExperimentRunner:
                 run["watchdog"]["armed"] = False
             return True
         try:
-            self.docker.start(target)
+            self.docker.rollback(action, target, action_state)
         except Exception as error:  # noqa: BLE001
             run["cleanup_state"] = "failed"
             run["status"] = "failed"

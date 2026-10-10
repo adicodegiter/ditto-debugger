@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ditto-ai-chaos/schemas/diagnosis.schema.json",
+  "title": "Predicted-vs-observed diagnosis of one run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "diagnosis_id", "run_id", "experiment_id", "comparison", "evidence_use", "summary"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "diagnosis_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "experiment_id": { "type": "string", "minLength": 1 },
+    "target_component": { "type": "string" },
+    "action": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["predicted", "observed", "verdict"],
+        "properties": {
+          "predicted": { "enum": ["hold", "degrade", "fail"] },
+          "observed": { "enum": ["hold", "degrade", "fail", "not_measured"] },
+          "verdict": { "enum": ["match", "worse_than_predicted", "better_than_predicted", "not_measured"] },
+          "error_rate": { "type": ["number", "null"] },
+          "p95_ms": { "type": ["number", "null"] }
+        }
+      }
+    },
+    "prediction_accuracy": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "recovered": { "type": "boolean" },
+    "recovery_s": { "type": ["number", "null"] },
+    "kill_switch": {
+      "type": "object",
+      "properties": { "tripped": { "type": "boolean" }, "forced_test": { "type": "boolean" } }
+    },
+    "evidence_use": { "enum": ["experiment", "kill_switch_test", "dry_run", "inconclusive"] },
+    "flags": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string", "minLength": 1 }
+  }
+}
