@@ -1,0 +1,121 @@
+{
+  "abort_reason": "p95_latency_above_baseline_multiplier",
+  "baseline_valid": true,
+  "baseline_write_p95_ms": 17.477,
+  "cleanup_state": "complete",
+  "created_at": "2026-10-10T10:03:11.555939+00:00",
+  "experiment_id": "restart-things-search-1795f70dddfc5bdd",
+  "findings": [
+    {
+      "ai_generated": false,
+      "confidence": 0.95,
+      "evidence": [
+        "run:run-d3f744a96f7a",
+        "abort:p95_latency_above_baseline_multiplier",
+        "recovery:things-search",
+        "observation_count:3",
+        "degraded_observations:1"
+      ],
+      "id": "run-d3f744a96f7a-availability",
+      "recommendation": "Investigate the affected dependency and add an availability budget or timeout protection before increasing fault duration.",
+      "run_id": "run-d3f744a96f7a",
+      "schema_version": "1.0",
+      "severity": "high",
+      "summary": "The approved experiment caused measurable client-side availability degradation."
+    }
+  ],
+  "forced_test": true,
+  "forced_test_passed": true,
+  "forced_test_rule": "write p95 limit lowered to 0.01x baseline during the fault only",
+  "observations": [
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.064497,
+      "freshness_samples": 54,
+      "phase": "pre_fault",
+      "search_error_rate": 0.0,
+      "search_samples": 54,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:03:12.268981+00:00",
+      "window_start": "2026-10-10T10:02:42.268981+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 21.327,
+      "write_samples": 54
+    },
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.064497,
+      "freshness_samples": 47,
+      "phase": "fault",
+      "search_error_rate": 0.0,
+      "search_samples": 47,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:03:18.159529+00:00",
+      "window_start": "2026-10-10T10:02:48.159529+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 21.24,
+      "write_samples": 47
+    },
+    {
+      "error_rate": 0.14285714285714285,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 10.048009,
+      "freshness_samples": 7,
+      "phase": "recovered",
+      "search_error_rate": 0.14285714285714285,
+      "search_samples": 7,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T10:03:27.811070+00:00",
+      "window_start": "2026-10-10T10:03:19.170197+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 18.111,
+      "write_samples": 6
+    }
+  ],
+  "prediction": {
+    "predicted_impacts": [
+      "things-search"
+    ]
+  },
+  "recovery": {
+    "canary": true,
+    "canary_path": "/api/2/search/things?option=size(1)",
+    "canary_status": 200,
+    "health_status": 200,
+    "healthy": true,
+    "sli_reason": null,
+    "slis_within_baseline": true,
+    "target": "things-search"
+  },
+  "recovery_time_seconds": 9.032,
+  "recovery_verified": true,
+  "resilience_score": {
+    "components": {},
+    "coverage": 0.0,
+    "score": null,
+    "status": "not_scored_forced_test"
+  },
+  "run_id": "run-d3f744a96f7a",
+  "safety_violation": false,
+  "schema_version": "1.0",
+  "status": "aborted",
+  "timeline": {
+    "abort_at": "2026-10-10T10:03:18.665553+00:00",
+    "created_at": "2026-10-10T10:03:11.555939+00:00",
+    "injected_at": "2026-10-10T10:03:16.154399+00:00",
+    "recovered_at": "2026-10-10T10:03:28.207103+00:00",
+    "rollback_at": "2026-10-10T10:03:19.170197+00:00"
+  },
+  "watchdog": {
+    "armed": false,
+    "deadline": "2026-10-10T10:03:37.717177+00:00"
+  }
+}

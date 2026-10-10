@@ -160,6 +160,29 @@ def compare_retest_runs(before: dict[str, Any], after: dict[str, Any]) -> dict[s
             "write_error_rate": _measurement(before_write_error, after_write_error, "ratio"),
             "write_p95_ms": _measurement(before_write_p95, after_write_p95, "ms"),
             "recovery_time_seconds": _measurement(before_recovery, after_recovery, "s"),
+            "write_samples_per_second": _measurement(
+                _first_number(before, ("write_samples_per_second",)),
+                _first_number(after, ("write_samples_per_second",)),
+                "per s",
+            ),
         },
-        "overall_improvement": "not demonstrated",
+        "overall_improvement": _overall_improvement(before, after, before_failure_wait, after_failure_wait),
     }
+
+
+def _overall_improvement(before: dict[str, Any], after: dict[str, Any], wait_before: float | None, wait_after: float | None) -> str:
+    """Client-side and server-side effects are judged separately; missing evidence is never an improvement."""
+    if wait_before is None or wait_after is None:
+        return "not demonstrated"
+    rate_before = _first_number(before, ("write_samples_per_second",))
+    rate_after = _first_number(after, ("write_samples_per_second",))
+    if rate_before is None or rate_after is None:
+        return "not demonstrated"
+    client_side = wait_after < wait_before and rate_after >= rate_before
+    errors_after = _reported(after).get("search_failure_errors") or after.get("search_failure_errors") or []
+    still_timeouts = bool(errors_after) and all("Timeout" in str(error) for error in errors_after)
+    if client_side and still_timeouts:
+        return "client-side improvement demonstrated; server-side fail-fast not demonstrated"
+    if client_side:
+        return "client-side improvement demonstrated"
+    return "not demonstrated"
