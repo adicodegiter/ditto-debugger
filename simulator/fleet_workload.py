@@ -13,6 +13,8 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from monitor.sli import append_jsonl, baseline_summary, load_thresholds, utc_timestamp  # noqa: E402
+from monitor.container import capture_container_metrics  # noqa: E402
+from monitor.sse import FreshnessSseSubscriber  # noqa: E402
 from simulator.config import AUTH, DITTO_BASE_URL, NAMESPACE, POLICY_ID, policy_body  # noqa: E402
 
 
@@ -131,13 +133,31 @@ def _run_freshness_probe(session: requests.Session, vehicle_id: str, *, api_base
     }
 
 
-def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, duration_seconds: float = 30.0, rate_per_second: float = 2.0, metrics_dir: str | Path = "data/metrics") -> dict:
+def _run_sse_freshness_probe(subscriber: FreshnessSseSubscriber, vehicle_id: str, run_id: str) -> dict:
+    started = time.perf_counter()
+    sample = subscriber.sample(vehicle_id)
+    return {
+        "kind": "freshness",
+        "source": "live",
+        "run_id": run_id,
+        "method": "sse",
+        "vehicle_id": vehicle_id,
+        **sample,
+        "latency_ms": round((time.perf_counter() - started) * 1000.0, 3),
+        "status_code": 200 if sample["success"] else None,
+        "timestamp": utc_timestamp(),
+    }
+
+
+def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, duration_seconds: float = 120.0, rate_per_second: float = 2.0, metrics_dir: str | Path = "data/metrics", capture_containers: bool = True, freshness_method: str = "sse") -> dict:
     metrics_path = Path(metrics_dir)
     metrics_path.mkdir(parents=True, exist_ok=True)
     api_base = _resolve_api_base(base_url)
     run_id = f"run-{uuid.uuid4().hex[:12]}"
     session = requests.Session()
     session.auth = AUTH
+    if capture_containers:
+        capture_container_metrics(metrics_path)
 
     policy_response = session.put(f"{api_base}/policies/{POLICY_ID}", json=policy_body(), timeout=10)
     if policy_response.status_code not in {200, 201, 204}:
@@ -147,22 +167,33 @@ def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, dur
     vehicle_ids = [f"{NAMESPACE}:vehicle-{idx:02d}" for idx in range(1, vehicles + 1)]
     for vehicle_id in vehicle_ids:
         _ensure_vehicle(session, vehicle_id, api_base)
+    subscriber = FreshnessSseSubscriber(api_base, vehicle_ids, AUTH) if freshness_method == "sse" else None
+    if subscriber is not None:
+        subscriber.start()
 
-    while time.monotonic() < deadline:
-        for vehicle_id in vehicle_ids:
-            if time.monotonic() >= deadline:
-                break
-            value = int((time.monotonic() * 1000) % 100)
-            record = _run_write_probe(session, vehicle_id, value=value, api_base=api_base, run_id=run_id)
-            append_jsonl(metrics_path / "write.jsonl", record)
+    try:
+        while time.monotonic() < deadline:
+            for vehicle_id in vehicle_ids:
+                if time.monotonic() >= deadline:
+                    break
+                value = int((time.monotonic() * 1000) % 100)
+                record = _run_write_probe(session, vehicle_id, value=value, api_base=api_base, run_id=run_id)
+                append_jsonl(metrics_path / "write.jsonl", record)
 
-            search_record = _run_search_probe(session, vehicle_id, api_base=api_base, run_id=run_id)
-            append_jsonl(metrics_path / "search.jsonl", search_record)
+                search_record = _run_search_probe(session, vehicle_id, api_base=api_base, run_id=run_id)
+                append_jsonl(metrics_path / "search.jsonl", search_record)
 
-            freshness_record = _run_freshness_probe(session, vehicle_id, api_base=api_base, run_id=run_id)
-            append_jsonl(metrics_path / "freshness.jsonl", freshness_record)
+                freshness_record = (
+                    _run_sse_freshness_probe(subscriber, vehicle_id, run_id)
+                    if subscriber is not None
+                    else _run_freshness_probe(session, vehicle_id, api_base=api_base, run_id=run_id)
+                )
+                append_jsonl(metrics_path / "freshness.jsonl", freshness_record)
 
-            time.sleep(max(0.0, 1.0 / max(rate_per_second, 0.1)))
+                time.sleep(max(0.0, 1.0 / max(rate_per_second, 0.1)))
+    finally:
+        if subscriber is not None:
+            subscriber.close()
 
     thresholds_path = Path(__file__).resolve().parents[1] / "configs" / "telemetry.yaml"
     summary = baseline_summary(metrics_path, run_id=run_id, thresholds=load_thresholds(thresholds_path))
@@ -174,6 +205,25 @@ def run_fleet_workload(*, base_url: str = DITTO_BASE_URL, vehicles: int = 8, dur
         "rate_per_second": rate_per_second,
         "captured_at": utc_timestamp(),
     }
+    baseline_id = f"baseline-{run_id}"
+    baseline = {
+        "schema_version": "1.0",
+        "baseline_id": baseline_id,
+        "run_id": run_id,
+        "captured_at": summary["run"]["captured_at"],
+        "source": "client-sli-jsonl",
+        "status": summary["status"],
+        "summary": summary,
+        "metric_files": [
+            str(metrics_path / name)
+            for name in ("write.jsonl", "search.jsonl", "freshness.jsonl", "container.jsonl")
+            if (metrics_path / name).exists()
+        ],
+    }
+    baseline_dir = metrics_path.parent / "baselines"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    (baseline_dir / f"{baseline_id}.json").write_text(json.dumps(baseline, indent=2, sort_keys=True), encoding="utf-8")
+    summary["baseline_id"] = baseline_id
     return summary
 
 
@@ -184,9 +234,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--base-url", default=DITTO_BASE_URL, help="Ditto HTTP base URL")
     parser.add_argument("--vehicles", type=int, default=8, help="number of fleet vehicles to exercise")
-    parser.add_argument("--duration-seconds", type=float, default=30.0, help="how long to run the workload")
+    parser.add_argument("--duration-seconds", type=float, default=120.0, help="how long to run the workload")
     parser.add_argument("--rate-per-second", type=float, default=2.0, help="average update/search rate per second")
     parser.add_argument("--metrics-dir", type=Path, default=Path("data/metrics"), help="where to write JSON Lines metric files")
+    parser.add_argument("--no-container-metrics", action="store_true", help="skip the local Docker resource snapshot")
+    parser.add_argument("--freshness-method", choices=("sse", "poll-proxy"), default="sse", help="freshness evidence source")
     return parser
 
 
@@ -199,6 +251,8 @@ def main() -> int:
             duration_seconds=args.duration_seconds,
             rate_per_second=args.rate_per_second,
             metrics_dir=args.metrics_dir,
+            capture_containers=not args.no_container_metrics,
+            freshness_method=args.freshness_method,
         )
     except requests.RequestException as error:
         print(f"workload failed: {error}", file=sys.stderr)

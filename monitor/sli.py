@@ -147,13 +147,15 @@ def summarize_freshness_samples(samples: list[dict[str, Any]], now: datetime | N
     status = "healthy" if freshness_values and (summary["p95"] is None or summary["p95"] <= limits["freshness_p95_seconds_max"]) else "degraded"
     if samples and not freshness_values:
         status = "unknown"
+    methods = {str(item.get("method")) for item in samples if item.get("method")}
+    method = next(iter(methods)) if len(methods) == 1 else ("mixed" if methods else "poll-proxy")
     return {
         "kind": "freshness",
         "samples": len(freshness_values),
         "p95_seconds": summary["p95"],
         "p50_seconds": summary["p50"],
         "mean_seconds": summary["mean"],
-        "method": "poll-proxy",
+        "method": method,
         "status": status,
     }
 

@@ -7,14 +7,38 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import requests
+from unittest.mock import patch
 
 from ai.report import generate_findings
 from monitor.sli import append_jsonl, baseline_summary, load_thresholds, summarize_freshness_samples, summarize_metrics
 from monitor.window import window_stats
+from monitor.container import capture_container_metrics
+from monitor.sse import FreshnessSseSubscriber, parse_sse_events
 from simulator.fleet_workload import _run_freshness_probe, _run_search_probe, _run_write_probe
 
 
 class MeasurementSliTests(unittest.TestCase):
+    def test_sse_parser_reads_json_data_events(self):
+        events = list(parse_sse_events([
+            "event: thing\n",
+            'data: {"thingId":"bosch.fleet:vehicle-01","features":{"telemetry":{"properties":{"last_seen":"2026-10-10T10:00:00Z"}}}}\n',
+            "\n",
+        ]))
+        self.assertEqual(events[0]["thingId"], "bosch.fleet:vehicle-01")
+
+    def test_sse_subscriber_calculates_freshness_from_latest_event(self):
+        subscriber = FreshnessSseSubscriber("http://local/api/2", ["bosch.fleet:vehicle-01"], ("ditto", "ditto"))
+        subscriber._latest["bosch.fleet:vehicle-01"] = datetime.now(timezone.utc).isoformat()
+        sample = subscriber.sample("bosch.fleet:vehicle-01")
+        self.assertTrue(sample["success"])
+        self.assertGreaterEqual(sample["freshness_seconds"], 0)
+    def test_container_metrics_capture_is_local_and_jsonl(self):
+        completed = Mock(returncode=0, stdout='{"Name":"ditto-things-search-1","CPUPerc":"2.5%","MemPerc":"1%"}\n', stderr="")
+        with tempfile.TemporaryDirectory() as directory, patch("monitor.container.subprocess.run", return_value=completed) as run:
+            records = capture_container_metrics(directory)
+            self.assertEqual(records[0]["container"], "ditto-things-search-1")
+            self.assertEqual(run.call_args.args[0][:3], ["docker", "stats", "--no-stream"])
+            self.assertTrue((Path(directory) / "container.jsonl").is_file())
     def test_window_stats_counts_search_outage_as_error(self):
         with tempfile.TemporaryDirectory() as directory:
             now = datetime(2026, 10, 10, 13, 0, 30, tzinfo=timezone.utc)
@@ -31,7 +55,8 @@ class MeasurementSliTests(unittest.TestCase):
                     record["freshness_seconds"] = 1
                 append_jsonl(Path(directory) / f"{kind}.jsonl", record)
             stats = window_stats(directory, last_s=30, now=now)
-            self.assertEqual(stats["error_rate"], 1.0)
+            self.assertEqual(stats["error_rate"], 0.0)
+            self.assertEqual(stats["search_error_rate"], 1.0)
             self.assertTrue(stats["telemetry_available"])
             self.assertTrue(stats["baseline_healthy"])
 
@@ -106,6 +131,17 @@ class MeasurementSliTests(unittest.TestCase):
     def test_freshness_summary_labels_poll_proxy(self):
         summary = summarize_freshness_samples([{"freshness_seconds": 1.0}])
         self.assertEqual(summary["method"], "poll-proxy")
+
+    def test_freshness_summary_labels_sse_and_mixed_methods(self):
+        sse_summary = summarize_freshness_samples([
+            {"freshness_seconds": 1.0, "method": "sse"},
+        ])
+        mixed_summary = summarize_freshness_samples([
+            {"freshness_seconds": 1.0, "method": "sse"},
+            {"freshness_seconds": 2.0, "method": "poll-proxy"},
+        ])
+        self.assertEqual(sse_summary["method"], "sse")
+        self.assertEqual(mixed_summary["method"], "mixed")
 
     def test_jsonl_baseline_summary_handles_missing_kinds(self):
         with tempfile.TemporaryDirectory() as directory:

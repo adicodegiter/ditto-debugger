@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -46,10 +47,10 @@ def window_stats(
         )
     write_error_rate = summary["write"].get("error_rate")
     search_error_rate = summary["search"].get("error_rate")
-    error_rate = max(
-        float(write_error_rate or 0.0),
-        float(search_error_rate or 0.0),
-    )
+    # The kill switch protects the write path. Search degradation remains
+    # visible in the observation and report without aborting an expected
+    # things-search experiment.
+    error_rate = float(write_error_rate or 0.0)
     thresholds = load_thresholds(thresholds_file)
     p95_limit = None if baseline_p95 is None else float(baseline_p95) * thresholds["write_p95_multiplier"]
     missing = bool(summary["warnings"])
@@ -73,6 +74,24 @@ def window_stats(
 
 
 def baseline_from_metrics(metrics_dir: Path | str, *, thresholds_file: Path | str | None = None) -> dict[str, Any]:
+    metrics_path = Path(metrics_dir)
+    artifacts = list((metrics_path.parent / "baselines").glob("baseline-*.json"))
+    if artifacts:
+        latest = max(artifacts, key=lambda path: path.stat().st_mtime)
+        try:
+            artifact = json.loads(latest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            artifact = None
+        if isinstance(artifact, dict) and isinstance(artifact.get("summary"), dict):
+            return {
+                "baseline_id": artifact.get("baseline_id"),
+                "captured_at": artifact.get("captured_at"),
+                "status": artifact.get("status"),
+                "coverage": 1.0 if artifact.get("status") == "healthy" else 0.0,
+                "telemetry": artifact["summary"],
+                "source": artifact.get("source", "client-sli-jsonl"),
+                "run_id": artifact.get("run_id"),
+            }
     summary = baseline_summary(metrics_dir, thresholds=load_thresholds(thresholds_file))
     return {
         "baseline_id": f"client-baseline-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",

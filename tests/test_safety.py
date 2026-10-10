@@ -88,7 +88,7 @@ class SafetyTests(unittest.TestCase):
         runner = ExperimentRunner(
             self.policy,
             docker,
-            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "error_rate": 0.5}),
+            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "write_error_rate": 0.5}),
             FakeRecovery(),
             sleep=lambda _seconds: None,
         )
@@ -103,7 +103,7 @@ class SafetyTests(unittest.TestCase):
         runner = ExperimentRunner(
             self.policy,
             docker,
-            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "error_rate": 0.0}),
+            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "write_error_rate": 0.0}),
             FakeRecovery(),
             sleep=lambda _seconds: None,
         )
@@ -165,7 +165,7 @@ class SafetyTests(unittest.TestCase):
         runner = ExperimentRunner(
             self.policy,
             docker,
-            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "error_rate": 0.0}),
+            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "write_error_rate": 0.0}),
             FailingRecovery(),
             sleep=lambda _seconds: None,
         )
@@ -180,7 +180,7 @@ class SafetyTests(unittest.TestCase):
         runner = ExperimentRunner(
             self.policy,
             docker,
-            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "error_rate": 0.0}),
+            FakeObservations({"telemetry_available": True, "baseline_healthy": True, "unrelated_component_healthy": True, "write_error_rate": 0.0}),
             FakeRecovery(),
             sleep=lambda _seconds: None,
         )
