@@ -32,6 +32,18 @@
       <div><span class="status-label">FAULT EXECUTION</span><strong class="status-disabled">Disabled</strong></div>
     </section>
 
+    <section class="metric-grid" aria-label="Current resilience indicators">
+      <article class="metric-card"><span class="metric-label">WRITE SUCCESS</span><strong id="write-success">—</strong><small id="write-latency">No samples</small></article>
+      <article class="metric-card"><span class="metric-label">SEARCH SUCCESS</span><strong id="search-success">—</strong><small id="search-latency">No samples</small></article>
+      <article class="metric-card"><span class="metric-label">FRESHNESS P95</span><strong id="freshness-p95">—</strong><small id="freshness-method">No samples</small></article>
+      <article class="metric-card"><span class="metric-label">BASELINE</span><strong id="baseline-status">Not captured</strong><small id="baseline-detail">Healthy live telemetry required</small></article>
+    </section>
+
+    <section class="safety-banner" aria-label="Safety controls">
+      <div><span class="safety-icon">!</span><div><strong>Safety gate active</strong><p>Planning is evidence-bound. Fault execution stays disabled in the API; only the approved local operator runner can execute an experiment.</p></div></div>
+      <span id="execution-state" class="state-tag state-disabled">API EXECUTION DISABLED</span>
+    </section>
+
     <section class="agent-section">
       <div class="section-heading"><div><p class="eyebrow">COORDINATED SPECIALISTS</p><h2>Agent status</h2></div></div>
       <div id="agent-list" class="agent-list" aria-live="polite"></div>
@@ -83,6 +95,10 @@
         <section class="activity-column" aria-labelledby="findings-heading">
           <div class="section-heading"><h3 id="findings-heading">Findings</h3><span id="finding-count" class="quiet-count">0</span></div>
           <div id="finding-list" class="activity-list" aria-live="polite"><p class="muted">No findings saved.</p></div>
+        </section>
+        <section class="activity-column" aria-labelledby="audit-heading">
+          <div class="section-heading"><h3 id="audit-heading">Safety audit</h3><span id="audit-count" class="quiet-count">0</span></div>
+          <div id="audit-list" class="activity-list" aria-live="polite"><p class="muted">No audit events saved.</p></div>
         </section>
       </div>
     </section>
