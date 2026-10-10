@@ -10,6 +10,9 @@ WEIGHTS = {"availability": 0.30, "latency": 0.20, "recovery": 0.20, "containment
 def calculate_resilience_score(run: dict[str, Any]) -> dict[str, Any]:
     if run.get("safety_violation"):
         return {"status": "unsafe", "score": None, "coverage": 0.0, "components": {}}
+    if run.get("forced_test"):
+        # A forced kill-switch test proves the abort path; it is not resilience evidence.
+        return {"status": "not_scored_forced_test", "score": None, "coverage": 0.0, "components": {}}
     values = run.get("score_components", {})
     observed = {}
     for name, value in values.items():

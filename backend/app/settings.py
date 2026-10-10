@@ -4,8 +4,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from simulator.config import DITTO_PASS, DITTO_USER
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,8 +18,10 @@ class Settings:
     execution_enabled: bool = False
     ditto_base_url: str = "http://127.0.0.1:8080"
     metrics_dir: Path = REPOSITORY_ROOT / "data" / "metrics"
+    # Local sample credentials by default (upstream deployment's ditto:ditto, loopback only).
     ditto_username: str = "ditto"
     ditto_password: str = "ditto"
+    image_pins_file: Path = REPOSITORY_ROOT / "deploy" / "image-pins.env"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -42,6 +42,8 @@ class Settings:
             execution_enabled=os.environ.get("CHAOS_EXECUTION_ENABLED", "false").lower() == "true",
             ditto_base_url=os.environ.get("DITTO_BASE_URL", "http://127.0.0.1:8080").rstrip("/"),
             metrics_dir=Path(os.environ.get("METRICS_DIR", str(REPOSITORY_ROOT / "data" / "metrics"))).expanduser(),
-            ditto_username=DITTO_USER,
-            ditto_password=DITTO_PASS,
+            # Accept both spellings used in this repo (simulator/ uses DITTO_USER / DITTO_PASS).
+            ditto_username=os.environ.get("DITTO_USERNAME") or os.environ.get("DITTO_USER") or "ditto",
+            ditto_password=os.environ.get("DITTO_PASSWORD") or os.environ.get("DITTO_PASS") or "ditto",
+            image_pins_file=Path(os.environ.get("DITTO_IMAGE_PINS", str(REPOSITORY_ROOT / "deploy" / "image-pins.env"))).expanduser(),
         )

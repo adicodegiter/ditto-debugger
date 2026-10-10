@@ -8,7 +8,8 @@ scope:
   denied_targets:
     - mongodb
 max_concurrent_experiments: 1
-max_duration_seconds: 30
+# Hard ceiling for any fault. CLAUDE.md M4 is a 60 s things-search stop.
+max_duration_seconds: 60
 max_risk_score: 0.35
 baseline_max_age_seconds: 3600
 target_risk_scores:
@@ -17,16 +18,44 @@ target_risk_scores:
 approval:
   required: true
   expires_after_minutes: 10
+# Fixed action catalog. Each name maps to one hard-coded Docker Compose command in
+# safety/runner.py; anything else is rejected when the policy is loaded.
 actions:
   restart_container:
     enabled: true
     duration_seconds_default: 10
     cleanup: restart_target
+  stop_container:
+    enabled: true
+    duration_seconds_default: 60
+    cleanup: restart_target
+# Kill switch (CLAUDE.md "Kill switch thresholds"). Evaluated every poll_interval_seconds
+# while a fault is active, over the last window_seconds of SLI samples. Limits come only
+# from this file; observations can never override them.
+abort_thresholds:
+  window_seconds: 30
+  poll_interval_seconds: 2
+  write_error_rate: 0.20
+  write_p95_multiplier: 3.0
+  freshness_p95_seconds: 30
+  min_write_samples: 3
+  min_freshness_samples: 1
+recovery:
+  timeout_seconds: 180
+  poll_interval_seconds: 3
+# Independent watchdog process: restarts the target this many seconds after the
+# fault's planned end, even if the runner process has died.
+watchdog:
+  grace_seconds: 15
 abort_conditions:
   - baseline_unhealthy
   - unrelated_component_unhealthy
   - error_rate_above_configured_limit
+  - p95_latency_above_baseline_multiplier
+  - freshness_p95_above_limit
+  - missing_samples
   - experiment_deadline_exceeded
 notes:
-  - The runner is opt-in and must be enabled with CHAOS_EXECUTION_ENABLED=true on the local operator machine.
+  - Execution never runs inside the API. Only the separate operator process runs experiments
+    (python -m safety.cli execute EXPERIMENT_ID), and only with CHAOS_EXECUTION_ENABLED=true.
   - Never point a runner at a public, shared, or production deployment.
