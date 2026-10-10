@@ -51,6 +51,29 @@ def _validation_test(target: str, action: str, run: dict[str, Any]) -> str:
     )
 
 
+# Planner experiment ids start with a fixed per-action prefix: the inverse of
+# backend/app/agents/planning.py ACTION_PREFIX (kept local so --run-file needs no backend;
+# tests/test_ranking.py checks they match).
+_ID_PREFIX_ACTIONS = {
+    "restart": "restart_container",
+    "stop": "stop_container",
+    "pause": "pause_container",
+    "throttle": "cpu_throttle",
+    "burst": "traffic_burst",
+}
+
+
+def _target_and_action(run: dict[str, Any]) -> tuple[str, str]:
+    """From the diagnosis; for records that pre-date it (M4), from fields the runner and planner wrote."""
+    diagnosis = run.get("diagnosis") or {}
+    target = diagnosis.get("target_component") or (run.get("recovery") or {}).get("target") or "unknown"
+    action = diagnosis.get("action")
+    if not action:
+        prefix = str(run.get("experiment_id", "")).split("-", 1)[0]
+        action = _ID_PREFIX_ACTIONS.get(prefix, "unknown")
+    return target, action
+
+
 def rank_findings(runs: list[dict[str, Any]], findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_run = {run["run_id"]: run for run in runs if run.get("run_id")}
     ranked: list[dict[str, Any]] = []
@@ -58,8 +81,7 @@ def rank_findings(runs: list[dict[str, Any]], findings: list[dict[str, Any]]) ->
         run = by_run.get(finding.get("run_id"))
         if run is None or run.get("dry_run") or run.get("forced_test"):
             continue
-        diagnosis = run.get("diagnosis") or {}
-        target, action = diagnosis.get("target_component", "unknown"), diagnosis.get("action", "unknown")
+        target, action = _target_and_action(run)
         ranked.append({
             "finding_id": finding["id"],
             "run_id": run["run_id"],

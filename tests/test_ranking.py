@@ -1,7 +1,10 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from ai.ranking import load_run_files, measured_facts, rank_findings, render_markdown
 from ai.report import generate_findings
@@ -85,6 +88,23 @@ class SharedRunRecordTests(unittest.TestCase):
         aborted = next(r for r in runs if r["status"] == "aborted")
         self.assertEqual(aborted["abort_reason"], "p95_latency_above_baseline_multiplier")
         self.assertTrue(any(f["fact"] == "kill switch abort reason" for item in ranked if item["run_id"] == aborted["run_id"] for f in item["measured_facts"]))
+
+    def test_windows_records_rank_with_target_and_action_even_without_diagnosis(self):
+        files = sorted((EVIDENCE.parent / "windows-host").glob("run-*.json"))
+        self.assertEqual(len(files), 4)
+        runs = load_run_files([str(f) for f in files])
+        ranked = rank_findings(runs, [f for r in runs for f in generate_findings(r)])
+        labels = {item["run_id"]: (item["action"], item["target"]) for item in ranked}
+        # The M4 record pre-dates the diagnosis block: action from its planner id, target from its recovery check.
+        self.assertEqual(labels["run-c8b30b07c9f3"], ("restart_container", "things-search"))
+        self.assertNotIn(("unknown", "unknown"), labels.values())
+
+    def test_unlabelled_record_stays_unknown_and_prefixes_match_the_planner(self):
+        from ai.ranking import _ID_PREFIX_ACTIONS, _target_and_action
+        from app.agents.planning import ACTION_PREFIX
+
+        self.assertEqual(_ID_PREFIX_ACTIONS, {prefix: action for action, prefix in ACTION_PREFIX.items()})
+        self.assertEqual(_target_and_action({"run_id": "r", "experiment_id": "mystery-1"}), ("unknown", "unknown"))
 
 
 if __name__ == "__main__":
