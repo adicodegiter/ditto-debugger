@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,7 +56,7 @@ class P4PlannerTests(unittest.TestCase):
         self.assertIn("low-blast-radius first experiment", restart["reason"])
         deferred = {(r.get("action"), r["target"]) for r in result["policy_rejections"] if "deferred" in r["reason"]}
         self.assertIn(("restart_container", "gateway"), deferred)
-        self.assertIn(("cpu_throttle", "mongodb"), deferred, "mongodb is high impact: never a first experiment")
+        self.assertNotIn("mongodb", {item["target_component"] for item in result["candidates"]})
         for candidate in result["candidates"]:
             Draft202012Validator(SCHEMA).validate(candidate)
 
@@ -81,7 +82,7 @@ class P4PlannerTests(unittest.TestCase):
         cfg.write_text(yaml.safe_dump({"measured_slis": ["write"], "predicted_effects": {
             "gateway": {"write": "fail"}, "things-search": {"search": "fail"}}}), encoding="utf-8")
         result = ExperimentPlanningAgent(POLICY, self.repo, cfg).plan(self.graph, self.telemetry, self.baseline)
-        self.assertEqual([c["target_component"] for c in result["candidates"]], ["gateway"])
+        self.assertEqual({c["target_component"] for c in result["candidates"]}, {"gateway"})
         self.assertIn("lowest impact available", result["candidates"][0]["reason"])
 
     def test_forbidden_targets_never_appear(self):
@@ -90,15 +91,120 @@ class P4PlannerTests(unittest.TestCase):
         pairs = {(c["action"], c["target_component"]) for c in result["candidates"]}
         names = {target for _, target in pairs}
         self.assertFalse(names & {"policies", "things", "connectivity", "ditto-ui"})
-        # Denied/special targets only through the action that lists them explicitly.
-        self.assertEqual({a for a, t in pairs if t == "mongodb"} - {"cpu_throttle"}, set())
+        # Explicit action targets may narrow scope but cannot override a denied target.
+        self.assertFalse({target for _, target in pairs} & {"mongodb"})
         self.assertEqual({a for a, t in pairs if t == "nginx"} - {"traffic_burst"}, set())
-        self.assertIn(("cpu_throttle", "mongodb"), pairs, "eligible once a run has completed")
         self.assertFalse(result["execution_enabled"])
 
     def test_ranking_is_reproducible(self):
         self.repo.record_outcome("things-search", "restart_container", "no_failure_observed", "run:one")
         self.assertEqual(json.dumps(self.plan(), sort_keys=True), json.dumps(self.plan(), sort_keys=True))
+
+    def test_prediction_confirmation_does_not_lower_the_experiment_rank(self):
+        initial = self.plan()["candidates"][0]
+        self.repo.record_outcome("things-search", "restart_container", "prediction_confirmed", "run:confirmed")
+        history = self.repo.history_for("things-search", "restart_container")
+        after_confirmation = self.plan()["candidates"][0]
+
+        self.assertEqual(history["prediction_confirmations"], 1)
+        self.assertEqual(history["failures"], 0)
+        self.assertEqual(history["trials"], 0)
+        self.assertEqual(after_confirmation["selection_score"], initial["selection_score"])
+
+    def test_policy_enabled_stop_candidate_is_clamped_and_uses_graph_impact_paths(self):
+        policy_path = Path(self.tmp.name) / "policy.yaml"
+        policy_path.write_text(yaml.safe_dump({
+            "scope": {"allowed_targets": ["gateway", "things-search"], "denied_targets": []},
+            "max_duration_seconds": 60,
+            "baseline_max_age_seconds": 3600,
+            "max_risk_score": 0.35,
+            "target_risk_scores": {"gateway": 0.2, "things-search": 0.3},
+            "actions": {"stop_container": {"enabled": True, "duration_seconds_default": 90, "max_duration_seconds": 60}},
+        }), encoding="utf-8")
+        graph = deepcopy(self.graph)
+        result = ExperimentPlanningAgent(policy_path, self.repo, ROOT / "configs" / "planner.yaml").plan(
+            graph, self.telemetry, self.baseline
+        )
+
+        self.assertTrue(result["candidates"])
+        top = result["candidates"][0]
+        self.assertEqual((top["action"], top["target_component"], top["duration_seconds"]),
+                         ("stop_container", "things-search", 60))
+        self.assertEqual(top["schema_version"], "1.0")
+        Draft202012Validator(SCHEMA).validate(top)
+        self.assertIn("1 direct graph dependent(s): gateway", top["reason"])
+        self.assertIn("impact paths:", top["reason"])
+        self.assertIn("ai/dependency_map.json", top["reason"])
+        self.assertIn("ditto_docs:architecture-overview", top["reason"])
+        self.assertNotIn("configured dependent", top["reason"])
+
+    def test_default_policy_proposes_m4_things_search_stop_at_policy_default_duration(self):
+        policy = yaml.safe_load(POLICY.read_text(encoding="utf-8"))
+        expected_duration = int(policy["actions"]["stop_container"]["duration_seconds_default"])
+
+        result = self.plan()
+        candidate = next(
+            item for item in result["candidates"]
+            if item["target_component"] == "things-search" and item["action"] == "stop_container"
+        )
+
+        self.assertEqual(candidate["duration_seconds"], expected_duration)
+        Draft202012Validator(SCHEMA).validate(candidate)
+
+    def test_empty_impact_paths_name_missing_dependents_and_source(self):
+        graph = deepcopy(self.graph)
+        graph["impact_paths"]["things-search"] = [
+            {"impacted_component": "things-search", "path": ["things-search"], "edges": []},
+        ]
+        result = ExperimentPlanningAgent(POLICY, self.repo, ROOT / "configs" / "planner.yaml").plan(
+            graph, self.telemetry, self.baseline
+        )
+        candidate = next(item for item in result["candidates"] if item["target_component"] == "things-search")
+
+        self.assertIn("no direct dependents recorded in ai/dependency_map.json", candidate["reason"])
+        self.assertIn("source: ai/dependency_map.json", candidate["reason"])
+
+    def test_action_target_list_cannot_override_mongodb_deny(self):
+        policy_path = Path(self.tmp.name) / "deny.yaml"
+        policy_path.write_text(yaml.safe_dump({
+            "scope": {"allowed_targets": ["things-search"], "denied_targets": ["mongodb"]},
+            "max_duration_seconds": 60,
+            "baseline_max_age_seconds": 3600,
+            "max_risk_score": 0.35,
+            "target_risk_scores": {"things-search": 0.3, "mongodb": 0.3},
+            "actions": {"cpu_throttle": {
+                "enabled": True,
+                "targets": ["things-search", "mongodb"],
+                "duration_seconds_default": 60,
+            }},
+        }), encoding="utf-8")
+        result = ExperimentPlanningAgent(policy_path, self.repo, ROOT / "configs" / "planner.yaml").plan(
+            self.graph, self.telemetry, self.baseline
+        )
+
+        self.assertTrue(result["candidates"])
+        self.assertTrue(all(item["target_component"] != "mongodb" for item in result["candidates"]))
+
+    def test_only_exact_policy_targets_and_enabled_faults_are_proposed(self):
+        policy_path = Path(self.tmp.name) / "policy.yaml"
+        policy_path.write_text(yaml.safe_dump({
+            "scope": {"allowed_targets": ["things-search"], "denied_targets": ["things-search-alias"]},
+            "max_duration_seconds": 60,
+            "baseline_max_age_seconds": 3600,
+            "max_risk_score": 0.35,
+            "target_risk_scores": {"things-search": 0.3},
+            "actions": {
+                "stop_container": {"enabled": True, "duration_seconds_default": 60},
+                "restart_container": {"enabled": False, "duration_seconds_default": 10},
+            },
+        }), encoding="utf-8")
+
+        result = ExperimentPlanningAgent(policy_path, self.repo, ROOT / "configs" / "planner.yaml").plan(
+            self.graph, self.telemetry, self.baseline
+        )
+
+        self.assertTrue(all(item["target_component"] == "things-search" for item in result["candidates"]))
+        self.assertEqual({item["action"] for item in result["candidates"]}, {"stop_container"})
 
 
 if __name__ == "__main__":

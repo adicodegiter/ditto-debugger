@@ -251,7 +251,7 @@ class LocalRepository:
         }
 
     def record_outcome(self, target: str, action: str, outcome: str, evidence_ref: str) -> None:
-        if outcome not in {"failure_observed", "no_failure_observed"}:
+        if outcome not in {"failure_observed", "no_failure_observed", "prediction_confirmed"}:
             raise ValueError("Only completed, conclusive outcomes can update planner history.")
         if not evidence_ref.strip():
             raise ValueError("An evidence reference is required to record an outcome.")
@@ -269,9 +269,10 @@ class LocalRepository:
             ).fetchall()
         counts = {outcome: count for outcome, count in rows}
         return {
-            "trials": sum(counts.values()),
+            "trials": counts.get("failure_observed", 0) + counts.get("no_failure_observed", 0),
             "failures": counts.get("failure_observed", 0),
             "non_failures": counts.get("no_failure_observed", 0),
+            "prediction_confirmations": counts.get("prediction_confirmed", 0),
         }
 
     def _attach_approval_state(self, plan: dict[str, Any]) -> dict[str, Any]:

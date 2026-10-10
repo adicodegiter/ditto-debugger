@@ -1,19 +1,4 @@
-"""P4 diagnosis (Day 1): compare what the planner predicted with what one run observed.
-
-Deterministic. No LLM, no execution capability. Reads three records:
-  experiment : a candidate from the planner (schemas/experiment.schema.json), with predicted_slis
-  run        : the run record from the control plane (schemas/experiment-run.schema.json)
-  baseline   : {"slis": {"write": {"error_rate": 0.0, "p95_ms": 35.0}, ...}} from the telemetry agent
-
-Real run records (safety.runner) are read directly:
-  run["observations"]: one 30 s SLI window per kill-switch poll, phase = pre_fault | fault |
-      recovered | recovery_timeout, with write_error_rate, write_p95_ms, search_error_rate,
-      freshness_p95_seconds and sample counts
-  run["recovery_verified"], run["recovery_time_seconds"] (from rollback), run["abort_reason"],
-  run["forced_test"], run["dry_run"], run["prediction"]["predicted_slis"]
-Stored baselines (capture_baseline) are read from baseline["telemetry"]["telemetry"].
-The older test conventions ({"kind": "sli" | "recovery" | "kill_switch"}) are still accepted.
-"""
+"""Deterministic predicted-vs-observed analysis; this module cannot execute faults."""
 from __future__ import annotations
 
 import argparse
@@ -25,49 +10,55 @@ from typing import Any
 
 import yaml
 
+from ai.run_record import normalize_run_record
+
 ROOT = Path(__file__).resolve().parents[1]
 ORDER = {"hold": 0, "degrade": 1, "fail": 2}
-DEFAULTS = {"fail_error_rate": 0.20, "degrade_error_rise": 0.02, "slow_recovery_s": 60}
 
 
-def load_thresholds(path: Path | None = None) -> dict[str, float]:
-    thresholds = dict(DEFAULTS)
-    path = path or ROOT / "configs" / "planner.yaml"
-    if Path(path).is_file():
-        thresholds.update((yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}).get("diagnosis", {}))
-    return thresholds
+def load_thresholds(policy_path: Path | None = None) -> dict[str, float]:
+    policy_file = policy_path or ROOT / "configs" / "experiment-policy.yaml"
+    if not policy_file.is_file():
+        raise ValueError(f"Experiment policy is missing: {policy_file}")
+    policy = yaml.safe_load(policy_file.read_text(encoding="utf-8")) or {}
+    aborts = policy.get("abort_thresholds") or {}
+    recovery = policy.get("recovery") or {}
+    required = {
+        "fail_error_rate": aborts.get("write_error_rate"),
+        "write_p95_multiplier": aborts.get("write_p95_multiplier"),
+        "freshness_p95_seconds": aborts.get("freshness_p95_seconds"),
+        "slow_recovery_s": recovery.get("timeout_seconds"),
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
+        raise ValueError(f"Experiment policy is missing diagnosis limits: {', '.join(missing)}")
+    return {name: float(value) for name, value in required.items()}
 
 
-def classify(error_rate: float, p95_ms: float | None, base: dict[str, Any], t: dict[str, float]) -> str:
-    base_err = base.get("error_rate") or 0.0
-    base_p95 = base.get("p95_ms") or 0.0
-    if error_rate >= t["fail_error_rate"]:
+def classify(error_rate: float | None, p95_ms: float | None, base: dict[str, Any], limits: dict[str, float]) -> str | None:
+    base_error = base.get("error_rate")
+    base_p95 = base.get("p95_ms")
+    if error_rate is not None and error_rate > limits["fail_error_rate"]:
         return "fail"
-    slow = bool(base_p95) and (p95_ms or 0.0) > max(2 * base_p95, base_p95 + 100)
-    if error_rate > base_err + t["degrade_error_rise"] or slow:
+    if base_p95 and p95_ms is not None and p95_ms > base_p95 * limits["write_p95_multiplier"]:
+        return "fail"
+    error_degraded = error_rate is not None and base_error is not None and error_rate > base_error
+    latency_degraded = p95_ms is not None and base_p95 is not None and p95_ms > base_p95
+    if error_degraded or latency_degraded:
+        return "degrade"
+    if error_rate is not None or p95_ms is not None:
+        return "hold"
+    return None
+
+
+def classify_freshness(p95_s: float | None, baseline_p95_s: float | None, abort_s: float) -> str | None:
+    if p95_s is None:
+        return None
+    if p95_s > abort_s:
+        return "fail"
+    if baseline_p95_s is not None and p95_s > baseline_p95_s:
         return "degrade"
     return "hold"
-
-
-def _real_fault_observations(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Worst value per SLI across the runner's fault-phase windows."""
-    worst: dict[str, dict[str, Any]] = {}
-    for item in run.get("observations", []):
-        if item.get("phase") != "fault":
-            continue
-        candidates = {
-            "write": {"error_rate": item.get("write_error_rate"), "p95_ms": item.get("write_p95_ms")},
-            "search": {"error_rate": item.get("search_error_rate"), "p95_ms": None},
-            "freshness": {"error_rate": 0.0 if item.get("freshness_samples") else None, "p95_s": item.get("freshness_p95_seconds")},
-        }
-        for sli, values in candidates.items():
-            if values.get("error_rate") is None:
-                continue
-            current = worst.get(sli)
-            score = (values["error_rate"], values.get("p95_ms") or 0.0, values.get("p95_s") or 0.0)
-            if current is None or score > current["_score"]:
-                worst[sli] = {**values, "_score": score}
-    return worst
 
 
 def _baseline_slis(baseline: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -78,7 +69,9 @@ def _baseline_slis(baseline: dict[str, Any] | None) -> dict[str, dict[str, Any]]
     summary = (baseline.get("telemetry") or {}).get("telemetry") or {}
     if not summary:
         return {}
-    write, search, freshness = summary.get("write") or {}, summary.get("search") or {}, summary.get("freshness") or {}
+    write = summary.get("write") or {}
+    search = summary.get("search") or {}
+    freshness = summary.get("freshness") or {}
     return {
         "write": {"error_rate": write.get("error_rate"), "p95_ms": (write.get("latency_ms") or {}).get("p95")},
         "search": {"error_rate": search.get("error_rate"), "p95_ms": (search.get("latency_ms") or {}).get("p95")},
@@ -86,96 +79,100 @@ def _baseline_slis(baseline: dict[str, Any] | None) -> dict[str, dict[str, Any]]
     }
 
 
-def classify_freshness(p95_s: float | None, base_p95_s: float | None, abort_s: float = 30.0) -> str:
-    if p95_s is None:
-        return "hold"
-    if p95_s > abort_s:
-        return "fail"
-    if base_p95_s and p95_s > max(2 * base_p95_s, base_p95_s + 1.0):
-        return "degrade"
-    return "hold"
-
-
-def _during_sli_observations(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    real = _real_fault_observations(run)
-    if real:
-        return real
-    worst: dict[str, dict[str, Any]] = {}
-    for item in run.get("observations", []):
-        if item.get("kind") != "sli" or item.get("window", "during") != "during":
-            continue
-        sli = item.get("sli")
-        if sli and (sli not in worst or item.get("error_rate", 0.0) > worst[sli].get("error_rate", 0.0)):
-            worst[sli] = item
-    return worst
-
-
-def diagnose(experiment: dict[str, Any], run: dict[str, Any], baseline: dict[str, Any] | None = None,
-             thresholds: dict[str, float] | None = None) -> dict[str, Any]:
-    t = thresholds or load_thresholds()
+def diagnose(
+    experiment: dict[str, Any],
+    run: dict[str, Any],
+    baseline: dict[str, Any] | None = None,
+    thresholds: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    normalized = normalize_run_record(run, experiment=experiment)
+    limits = thresholds or load_thresholds()
     base_slis = _baseline_slis(baseline)
-    predicted = (run.get("prediction") or {}).get("predicted_slis") or experiment.get("predicted_slis") or {}
-    seen = _during_sli_observations(run)
+    predicted = normalized["prediction"].get("predicted_slis") or experiment.get("predicted_slis") or {}
+    seen = normalized["sli_windows"]
     warnings: list[str] = []
     if not predicted:
         warnings.append("no predicted_slis on the experiment or run; nothing to compare")
-    if run.get("experiment_id") != experiment.get("id"):
-        warnings.append(f"run is for experiment {run.get('experiment_id')} but the plan is {experiment.get('id')}")
+    if normalized.get("experiment_id") not in (None, experiment.get("id")):
+        warnings.append(f"run is for experiment {normalized['experiment_id']} but the plan is {experiment.get('id')}")
 
     comparison: dict[str, Any] = {}
     for sli, expected in predicted.items():
-        if sli not in seen:
+        measurement = seen.get(sli)
+        if measurement is None:
             comparison[sli] = {"predicted": expected, "observed": "not_measured", "verdict": "not_measured"}
             continue
         if sli not in base_slis:
             warnings.append(f"no baseline for {sli}; only the absolute error-rate rule was applied")
-        m = seen[sli]
-        if sli == "freshness" and "p95_s" in m:
-            observed = classify_freshness(m.get("p95_s"), (base_slis.get("freshness") or {}).get("p95_s"))
+        if sli == "freshness" and measurement.get("p95_s") is not None:
+            actual = classify_freshness(
+                measurement.get("p95_s"),
+                (base_slis.get("freshness") or {}).get("p95_s"),
+                limits["freshness_p95_seconds"],
+            )
+        elif sli == "freshness" and measurement.get("p95_ms") is None:
+            actual = None
         else:
-            observed = classify(m.get("error_rate") or 0.0, m.get("p95_ms"), base_slis.get(sli, {}), t)
-        verdict = "match" if observed == expected else ("worse_than_predicted" if ORDER[observed] > ORDER[expected] else "better_than_predicted")
-        comparison[sli] = {"predicted": expected, "observed": observed, "verdict": verdict,
-                           "error_rate": m.get("error_rate"), "p95_ms": m.get("p95_ms")}
+            actual = classify(measurement.get("error_rate"), measurement.get("p95_ms"), base_slis.get(sli, {}), limits)
+        if actual is None:
+            comparison[sli] = {"predicted": expected, "observed": "not_measured", "verdict": "not_measured"}
+            continue
+        verdict = "match" if actual == expected else (
+            "worse_than_predicted" if ORDER[actual] > ORDER[expected] else "better_than_predicted"
+        )
+        comparison[sli] = {
+            "predicted": expected,
+            "observed": actual,
+            "verdict": verdict,
+            "error_rate": measurement.get("error_rate"),
+            "p95_ms": measurement.get("p95_ms"),
+        }
 
-    recovery = next((o for o in run.get("observations", []) if o.get("kind") == "recovery"), {})
-    kill = next((o for o in run.get("observations", []) if o.get("kind") == "kill_switch"), {})
-    if "recovery_verified" in run or "abort_reason" in run or "forced_test" in run:
-        # Real runner record.
-        recovery = {"recovered": bool(run.get("recovery_verified")), "recovery_s": run.get("recovery_time_seconds")}
-        kill = {"tripped": bool(run.get("abort_reason")), "forced_test": bool(run.get("forced_test")), "reason": run.get("abort_reason")}
-    rec_s = recovery.get("recovery_s")
-    recovered = recovery.get("recovered", rec_s is not None)
-
-    measured = [v for v in comparison.values() if v["verdict"] != "not_measured"]
-    matches = sum(1 for v in measured if v["verdict"] == "match")
+    recovery_state = normalized["recovery_state"]
+    recovery_status = {
+        "recovered": "recovered",
+        "not_recovered": "did_not_recover",
+        "unknown": "inconclusive",
+    }[recovery_state]
+    recovery_seconds = normalized["recovery_time_seconds"]
+    measured = [result for result in comparison.values() if result["verdict"] != "not_measured"]
+    matches = sum(result["verdict"] == "match" for result in measured)
     accuracy = round(matches / len(measured), 2) if measured else None
 
+    forced_test = normalized["forced_test"]
+    dry_run = normalized["dry_run"]
+    kill_switch_tripped = normalized["kill_switch_tripped"]
     flags: list[str] = []
-    if not recovered:
+    if recovery_status == "did_not_recover":
         flags.append("did_not_recover")
-    elif rec_s is not None and rec_s > t["slow_recovery_s"]:
+    elif recovery_seconds is not None and recovery_seconds > limits["slow_recovery_s"]:
         flags.append("slow_recovery")
-    if any(v["verdict"] == "worse_than_predicted" for v in comparison.values()):
+    if any(result["verdict"] == "worse_than_predicted" for result in comparison.values()):
         flags.append("worse_than_predicted")
-    if kill.get("tripped"):
+    if kill_switch_tripped:
         flags.append("kill_switch_fired")
-    if run.get("safety_violation"):
+    if normalized["safety_violation"]:
         flags.append("safety_violation")
-    if run.get("cleanup_state") not in (None, "complete"):
+    if normalized["cleanup_state"] not in (None, "complete"):
         flags.append("cleanup_not_complete")
+    if (normalized["source"] == "runner_record" and normalized["aborted"]
+            and not forced_test and not dry_run):
+        flags.append("non_forced_abort")
 
-    if run.get("dry_run"):
-        evidence_use = "dry_run"
-    elif kill.get("forced_test"):
+    if forced_test:
         evidence_use = "kill_switch_test"
-    elif not measured or run.get("safety_violation") or run.get("status") == "failed":
+    elif dry_run:
+        evidence_use = "dry_run"
+    elif (not measured or any(result["verdict"] == "not_measured" for result in comparison.values())
+          or recovery_state == "unknown" or normalized["cleanup_state"] != "complete"
+          or normalized["safety_violation"] or normalized["status"] in {"aborted", "failed"}):
         evidence_use = "inconclusive"
     else:
         evidence_use = "experiment"
 
-    target = experiment.get("target_component")
-    summary = f"{target} {experiment.get('action')}: "
+    target = experiment.get("target_component") or normalized["target"]
+    action = experiment.get("action") or normalized["fault_type"]
+    summary = f"{target} {action}: "
     if evidence_use == "dry_run":
         summary += "dry run (no container was changed; not experiment evidence)."
     elif evidence_use == "kill_switch_test":
@@ -184,29 +181,31 @@ def diagnose(experiment: dict[str, Any], run: dict[str, Any], baseline: dict[str
         summary += "no SLI was measured during the run, so the prediction could not be checked."
     else:
         summary += f"prediction matched on {matches} of {len(measured)} measured SLIs."
-    if recovered and rec_s is not None:
-        summary += f" Recovery: {rec_s}s."
-    elif not recovered:
+    if recovery_state == "recovered" and recovery_seconds is not None:
+        summary += f" Recovery: {recovery_seconds}s."
+    elif recovery_state == "not_recovered":
         summary += " Did not recover in time."
-    if kill.get("tripped") and evidence_use != "kill_switch_test":
-        summary += " Kill switch fired."
-    missing = [s for s, v in comparison.items() if v["verdict"] == "not_measured"]
+    else:
+        summary += " Recovery evidence is missing; status is inconclusive."
+    missing = [name for name, result in comparison.items() if result["verdict"] == "not_measured"]
     if missing and measured:
         summary += f" Not measured: {', '.join(missing)}."
 
     return {
         "schema_version": "1.0",
-        "diagnosis_id": f"diag-{run.get('run_id')}",
-        "run_id": run.get("run_id"),
-        "experiment_id": experiment.get("id"),
+        "diagnosis_id": f"diag-{normalized['run_id']}",
+        "run_id": normalized["run_id"],
+        "experiment_id": experiment.get("id") or normalized.get("experiment_id"),
         "target_component": target,
-        "action": experiment.get("action"),
+        "action": action,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "comparison": comparison,
         "prediction_accuracy": accuracy,
-        "recovered": bool(recovered),
-        "recovery_s": rec_s,
-        "kill_switch": {"tripped": bool(kill.get("tripped")), "forced_test": bool(kill.get("forced_test"))},
+        "recovery_status": recovery_status,
+        "recovered": recovery_state == "recovered",
+        "recovery_s": recovery_seconds,
+        "recovery_seconds": recovery_seconds,
+        "kill_switch": {"tripped": kill_switch_tripped, "forced_test": forced_test},
         "evidence_use": evidence_use,
         "flags": flags,
         "warnings": warnings,
@@ -215,56 +214,65 @@ def diagnose(experiment: dict[str, Any], run: dict[str, Any], baseline: dict[str
 
 
 def history_outcome(diagnosis: dict[str, Any]) -> str | None:
-    """Outcome to store in planner history, or None when the run must not influence ranking
-    (forced kill-switch tests and runs with a telemetry gap are not resilience observations)."""
+    """Only real mismatches, non-forced aborts, and recovery failures weaken a target."""
+    if diagnosis.get("kill_switch", {}).get("forced_test") or diagnosis["evidence_use"] in {"kill_switch_test", "dry_run"}:
+        return None
+    flags = set(diagnosis.get("flags", []))
+    mismatched = any(result["verdict"] == "worse_than_predicted" for result in diagnosis["comparison"].values())
+    if mismatched or flags.intersection({"non_forced_abort", "did_not_recover", "slow_recovery"}):
+        return "failure_observed"
     if diagnosis["evidence_use"] != "experiment":
         return None
-    # An expected impact (e.g. search failing while things-search is stopped) is not a failure;
-    # only an effect worse than predicted or a missing recovery is.
-    worse = any(v["verdict"] == "worse_than_predicted" for v in diagnosis["comparison"].values())
-    return "failure_observed" if (worse or not diagnosis["recovered"]) else "no_failure_observed"
+    return "no_failure_observed"
 
 
-def _print(d: dict[str, Any]) -> None:
-    print(d["summary"])
-    for sli, v in d["comparison"].items():
-        print(f"  {sli:10} predicted={v['predicted']:8} observed={v['observed']:13} {v['verdict']}")
-    if d["flags"]:
-        print("Flags:", ", ".join(d["flags"]))
-    for w in d["warnings"]:
-        print("Warning:", w)
+def _print(diagnosis: dict[str, Any]) -> None:
+    print(diagnosis["summary"])
+    for sli, result in diagnosis["comparison"].items():
+        print(f"  {sli:10} predicted={result['predicted']:8} observed={result['observed']:13} {result['verdict']}")
+    if diagnosis["flags"]:
+        print("Flags:", ", ".join(diagnosis["flags"]))
+    for warning in diagnosis["warnings"]:
+        print("Warning:", warning)
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Compare a planned prediction with one run's observations.")
-    ap.add_argument("--experiment", required=True, help="candidate JSON from the planner")
-    ap.add_argument("--run", required=True, help="run record JSON from the control plane")
-    ap.add_argument("--baseline", help="baseline JSON with an 'slis' object")
-    ap.add_argument("--out", default=str(ROOT / "data" / "diagnoses"))
-    ap.add_argument("--record-history", action="store_true",
-                    help="store the outcome in the planner history (skipped for forced tests / telemetry gaps)")
-    a = ap.parse_args()
-    load = lambda p: json.loads(Path(p).read_text(encoding="utf-8"))
-    experiment, run = load(a.experiment), load(a.run)
-    if "candidates" in experiment:  # a whole plan file: pick the candidate this run executed
-        experiment = next((c for c in experiment["candidates"] if c["id"] == run.get("experiment_id")), experiment["candidates"][0])
-    d = diagnose(experiment, run, load(a.baseline) if a.baseline else None)
-    out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{d['diagnosis_id']}.json"
-    path.write_text(json.dumps(d, indent=2), encoding="utf-8")
-    _print(d)
+    parser = argparse.ArgumentParser(description="Compare a planned prediction with one run's observations.")
+    parser.add_argument("--experiment", required=True, help="candidate JSON from the planner")
+    parser.add_argument("--run", required=True, help="run record JSON from the control plane")
+    parser.add_argument("--baseline", help="baseline JSON with an 'slis' object")
+    parser.add_argument("--out", default=str(ROOT / "data" / "diagnoses"))
+    parser.add_argument("--record-history", action="store_true", help="record only conclusive real outcomes")
+    args = parser.parse_args()
+    load = lambda path: json.loads(Path(path).read_text(encoding="utf-8"))
+    experiment, raw_run = load(args.experiment), load(args.run)
+    if "candidates" in experiment:
+        experiment = next(
+            (candidate for candidate in experiment["candidates"] if candidate["id"] == raw_run.get("experiment_id")),
+            experiment["candidates"][0],
+        )
+    sys.path.insert(0, str(ROOT / "backend"))
+    from app.settings import Settings
+
+    settings = Settings.from_environment()
+    run = normalize_run_record(raw_run, experiment=experiment, run_path=args.run, metrics_dir=settings.metrics_dir)
+    diagnosis = diagnose(experiment, run, load(args.baseline) if args.baseline else None)
+    output = Path(args.out)
+    output.mkdir(parents=True, exist_ok=True)
+    path = output / f"{diagnosis['diagnosis_id']}.json"
+    path.write_text(json.dumps(diagnosis, indent=2), encoding="utf-8")
+    _print(diagnosis)
     print("Saved:", path)
-    if a.record_history:
-        outcome = history_outcome(d)
+    if args.record_history:
+        outcome = history_outcome(diagnosis)
         if outcome is None:
-            print("History: not recorded (", d["evidence_use"], ")")
+            print("History: not recorded (", diagnosis["evidence_use"], ")")
         else:
-            sys.path.insert(0, str(ROOT / "backend"))
-            from app.settings import Settings
             from app.store import LocalRepository
-            LocalRepository(Settings.from_environment().database_path).record_outcome(
-                d["target_component"], d["action"], outcome, f"run:{d['run_id']}")
+
+            LocalRepository(settings.database_path).record_outcome(
+                diagnosis["target_component"], diagnosis["action"], outcome, f"run:{diagnosis['run_id']}"
+            )
             print("History: recorded", outcome)
 
 

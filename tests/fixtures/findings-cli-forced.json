@@ -1,0 +1,22 @@
+{
+  "run_id": "run-fixture-forced",
+  "experiment_id": "restart-forced-fixture",
+  "status": "aborted",
+  "forced_test": true,
+  "prediction": {"predicted_slis": {"search": "fail"}},
+  "diagnosis": {
+    "action": "restart_container",
+    "target_component": "things-search",
+    "evidence_use": "kill_switch_test",
+    "kill_switch": {"forced_test": true, "tripped": true}
+  },
+  "observations": [
+    {
+      "phase": "fault",
+      "window_start": "2026-10-10T17:10:52Z",
+      "window_end": "2026-10-10T17:11:22Z",
+      "search_samples": 10,
+      "search_error_rate": 1.0
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "_fixture": true,
+  "_source": "reconstructed from docs/m4-results.md, not a raw record",
+  "schema_version": "1.0",
+  "dry_run": true,
+  "observations": [],
+  "_reported_results": {
+    "rehearsals_passed": true,
+    "record_details": "The report says both runs were rehearsed with --dry-run, but provides no individual dry-run record ID or measurements."
+  }
+}

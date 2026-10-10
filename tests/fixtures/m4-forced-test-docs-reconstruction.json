@@ -1,0 +1,32 @@
+{
+  "_fixture": true,
+  "_source": "reconstructed from docs/m4-results.md, not a raw record",
+  "schema_version": "1.0",
+  "run_id": "run-d3f744a96f7a",
+  "status": "aborted",
+  "action_params": {
+    "duration_seconds": 10
+  },
+  "prediction": {
+    "predicted_impacts": ["things-search"]
+  },
+  "observations": [],
+  "cleanup_state": "complete",
+  "forced_test": true,
+  "forced_test_passed": true,
+  "forced_test_rule": "write p95 limit lowered to 0.01x baseline during the fault only",
+  "abort_reason": "p95_latency_above_baseline_multiplier",
+  "recovery_verified": true,
+  "recovery_time_seconds": 9.0,
+  "_reported_results": {
+    "target": "things-search",
+    "action": "restart_container",
+    "planned_duration_seconds": 10,
+    "fault_elapsed_seconds_approx": 2.5,
+    "rollback_seconds_approx": 0.5,
+    "write_p95_ms": 21.2,
+    "forced_write_p95_limit_ms": 0.17,
+    "score_status": "not_scored_forced_test",
+    "recovery_verified_seconds_after_rollback": 9.0
+  }
+}

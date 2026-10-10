@@ -13,9 +13,35 @@ and [`docs/m4-results.md`](../../m4-results.md). Do not mix them with the Mac re
 | `run-4083aa7e13a1` | `traffic_burst` via `nginx`, 45 s (5.5) | 19.8 ms | Completed; write p95 up to 32.5 ms, no errors; recovery verified 4.3 s; score 91.68 |
 | `run-a09cb1bcbb7c` | `restart_container` on `things-search`, 10 s (5.7 re-run: 3 s search timeout, concurrent probes) | 24.7 ms | Completed; search errors up to 4.8%; recovery verified 22.4 s after rollback; score 89.0 |
 
+Also here: `run-d3f744a96f7a-forced-test.json`, the Day 1 forced kill-switch test (aborted 2.5 s
+into the fault on purpose; described in `docs/m4-results.md`). It is labelled and never scored or ranked.
+
 Every run was rehearsed with `--dry-run` and approved by a human (typed `APPROVE`) first.
-Dry-run records are not included: they are not resilience evidence. The forced kill-switch
-test from Day 1 (`run-d3f744a96f7a-forced-test`) is described in `docs/m4-results.md` and is never scored.
+Dry-run records are not included: they are not resilience evidence.
+
+## Probe samples (`samples/`)
+
+`samples/<run_id>.jsonl` holds the raw write and search probe samples from 5 s before injection to
+5 s after recovery, cut from the git-ignored `data/metrics/*.jsonl` with:
+
+```bash
+python -m ai.request_evidence --run docs/evidence/windows-host/<run_id>.json
+```
+
+They carry the request-level facts the run records cannot: how long a failing search hung, how long
+search was out, and the write probe rate during the outage. Fields: kind, timestamp (request end),
+latency, success, error type, vehicle ID. No credentials or personal data.
+
+## Findings report
+
+`docs/findings-report.md` is generated from this folder:
+
+```bash
+python -m ai.report_export
+python -m ai.trace_check docs/findings-report.md
+```
+
+Ranked findings only:
 
 ```bash
 python -m ai.ranking --markdown \

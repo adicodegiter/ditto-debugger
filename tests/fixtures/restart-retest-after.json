@@ -1,0 +1,23 @@
+{
+  "_fixture": true,
+  "_source": "run-a09cb1bcbb7c.json plus the documented 5.7 comparison metrics",
+  "run_id": "run-a09cb1bcbb7c",
+  "diagnosis": {"action": "restart_container", "target_component": "things-search"},
+  "action_params": {"duration_seconds": 10},
+  "baseline_id": null,
+  "baseline_write_p95_ms": 24.666,
+  "client_timeout_seconds": 3.0,
+  "recovery_time_seconds": 22.359,
+  "observations": [
+    {"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 38.195},
+    {"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 38.195}
+  ],
+  "_reported_results": {
+    "baseline_id": "baseline-c290fc21633a",
+    "last_search_failure_after_rollback_seconds": 7.0,
+    "search_request_timeouts": {"count": 5, "failures": 5, "window_seconds": 44.1},
+    "search_failure_wait_seconds": 3.0,
+    "write_error_rate": 0.0,
+    "write_p95_ms": 38.195
+  }
+}

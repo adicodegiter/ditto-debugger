@@ -1,0 +1,27 @@
+{
+  "_fixture": true,
+  "_source": "reconstructed from docs/m4-results.md, not a raw record",
+  "schema_version": "1.0",
+  "run_id": "run-c8b30b07c9f3",
+  "status": "completed",
+  "action_params": {
+    "duration_seconds": 10
+  },
+  "prediction": {
+    "predicted_impacts": ["things-search"]
+  },
+  "observations": [],
+  "cleanup_state": "complete",
+  "recovery_verified": true,
+  "recovery_time_seconds": 4.2,
+  "_reported_results": {
+    "target": "things-search",
+    "action": "restart_container",
+    "kill_switch_polls_without_breach": 5,
+    "search_outage_seconds_approx": 21,
+    "write_error_rate": 0.0,
+    "write_p95_ms_upper_bound": 19.6,
+    "write_p95_limit_ms": 47,
+    "recovery_verified_seconds_after_rollback": 4.2
+  }
+}

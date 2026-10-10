@@ -71,6 +71,48 @@ class RankingTests(unittest.TestCase):
         self.assertIn("Measured facts", text)
         self.assertIn("Validation test", text)
 
+    def test_real_kill_switch_abort_has_high_or_critical_severity(self):
+        path = Path(__file__).resolve().parents[1] / "docs" / "evidence" / "mac-local" / "run-7d99f5e69cf8.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        findings = generate_findings(record)
+        self.assertTrue(findings)
+        self.assertIn(findings[0]["severity"], {"high", "critical"})
+        self.assertIn("run:run-7d99f5e69cf8", findings[0]["evidence"])
+        self.assertIn("abort:p95_latency_above_baseline_multiplier", findings[0]["evidence"])
+
+    def test_forced_test_abort_does_not_create_a_weakness(self):
+        forced = {
+            "run_id": "forced-abort",
+            "status": "aborted",
+            "forced_test": True,
+            "abort_reason": "p95_latency_above_baseline_multiplier",
+            "observations": [{"phase": "fault", "write_error_rate": 1.0, "write_p95_ms": 400.0}],
+            "diagnosis": {"kill_switch": {"forced_test": True, "tripped": True}},
+        }
+        self.assertEqual(generate_findings(forced), [])
+
+    def test_completed_run_within_limits_stays_informational(self):
+        quiet = {
+            "run_id": "quiet-run",
+            "status": "completed",
+            "recovery_verified": True,
+            "recovery_time_seconds": 4.2,
+            "diagnosis": {
+                "target_component": "nginx",
+                "action": "traffic_burst",
+                "evidence_use": "experiment",
+                "kill_switch": {"tripped": False, "forced_test": False},
+                "comparison": {
+                    "search": {"predicted": "degrade", "observed": "hold", "verdict": "better_than_predicted"},
+                    "freshness": {"predicted": "degrade", "observed": "hold", "verdict": "better_than_predicted"},
+                },
+            },
+            "observations": [{"phase": "fault", "search_error_rate": 0.0, "freshness_p95_seconds": 0.1}],
+        }
+        findings = generate_findings(quiet)
+        self.assertTrue(findings)
+        self.assertEqual(findings[0]["severity"], "info")
+
 EVIDENCE = Path(__file__).resolve().parents[1] / "docs" / "evidence" / "mac-local"
 
 
@@ -103,13 +145,14 @@ class SharedRunRecordTests(unittest.TestCase):
 
     def test_windows_records_rank_with_target_and_action_even_without_diagnosis(self):
         files = sorted((EVIDENCE.parent / "windows-host").glob("run-*.json"))
-        self.assertEqual(len(files), 4)
+        self.assertEqual(len(files), 5)  # four real runs and the forced kill-switch test
         runs = load_run_files([str(f) for f in files])
         ranked = rank_findings(runs, [f for r in runs for f in generate_findings(r)])
         labels = {item["run_id"]: (item["action"], item["target"]) for item in ranked}
         # The M4 record pre-dates the diagnosis block: action from its planner id, target from its recovery check.
         self.assertEqual(labels["run-c8b30b07c9f3"], ("restart_container", "things-search"))
         self.assertNotIn(("unknown", "unknown"), labels.values())
+        self.assertNotIn("run-d3f744a96f7a", labels)  # forced tests are never ranked
 
     def test_unlabelled_record_stays_unknown_and_both_id_formats_map_to_actions(self):
         from ai.ranking import _ID_PREFIX_ACTIONS, _target_and_action
