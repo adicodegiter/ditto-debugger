@@ -8,6 +8,15 @@ const escapeText = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 }[char]));
 
+function scoreBreakdown(score, inputs) {
+  const components = (score && score.components) || {};
+  const names = Object.keys(components);
+  if (!names.length) return `<p class="muted">No score components: ${escapeText(fmt.label((score && score.status) || "not scored"))}.</p>`;
+  const detail = (name) => Object.entries((inputs && inputs[name]) || {}).filter(([k]) => k !== "rule").map(([k, v]) => `${escapeText(fmt.label(k))}: ${escapeText(v ?? "n/a")}`).join(" · ");
+  const rows = names.map((name) => `<tr><td>${escapeText(fmt.label(name))}</td><td>${escapeText(Number(components[name]).toFixed(2))}</td><td>${escapeText((((inputs || {})[name] || {}).rule) || "")}</td><td>${detail(name)}</td></tr>`).join("");
+  return `<h3>Score inputs</h3><p class="activity-meta">Status ${escapeText(fmt.label(score.status))} · coverage ${escapeText(score.coverage)}${inputs && inputs.score_version ? ` · score version ${escapeText(inputs.score_version)}` : ""}</p><table class="data-table"><thead><tr><th>Component</th><th>Value</th><th>Rule</th><th>Inputs</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 async function getJson(path, options) {
   const response = await fetch(path, options);
   let payload = {};
@@ -474,6 +483,7 @@ async function renderRunDetail(run) {
       <div><span>Watchdog</span><strong>${run.watchdog ? (run.watchdog.armed ? "still armed" : "armed → disarmed") : "—"}</strong></div>
       <div><span>Score</span><strong>${escapeText(score.score ?? fmt.label(score.status || "—"))}</strong></div>
     </div>
+    ${scoreBreakdown(score, run.score_inputs)}
     <h3>Timeline</h3>
     <ol class="timeline">${steps.map(([key, label]) => `<li class="${key === "abort_at" ? "abort" : ""}"><span>${escapeText(label)}</span><b>${escapeText(rel(timeline[key]))}</b><small>${escapeText(fmt.time(timeline[key]))}</small></li>`).join("")}</ol>
     <h3>Kill switch, poll by poll</h3>

@@ -23,6 +23,17 @@ Ditto's official operations docs describe Prometheus metrics on each service's p
 
 Scores are never produced for dry runs: a dry run exercises preflight and records the commands that would run, but it does not create fault evidence. Forced kill-switch tests are also excluded because they validate the safety path rather than resilience. Availability uses the worst observed error rate across both write and search paths, so a search outage cannot appear healthy merely because writes continued. Detection is recorded as `1.0` for a completed run and `0.5` when an abort reason is recorded; this project convention rewards completed operation while retaining evidence that the kill switch detected a problem. Runs with no fault observations remain `incomplete`.
 
+### Implemented formulas (score version 1.0, `safety/scoring.py`)
+
+The list below is the original design. The runner implements these simplified rules, and each run record stores their raw inputs in `score_inputs` (shown in the dashboard's run view):
+
+- Availability = `1 - max(worst write error rate, worst search error rate)` over the fault windows.
+- Latency = `baseline write p95 / worst write p95` during the fault, capped at 1. Search p95 is not used because its baseline differs from the write baseline.
+- Recovery = `1 - recovery_time_seconds / recovery budget` (policy `recovery.timeout_seconds`, 180 s). Only when recovery was verified.
+- Containment = 1 if every fault window kept unrelated components healthy, else 0.
+- Detection = 1.0 for a completed run, 0.5 for a run the kill switch aborted.
+- Weights 0.30 / 0.20 / 0.20 / 0.15 / 0.15 as below. A component with no recorded input is left out, never guessed, and the score is `incomplete` below 0.80 weight coverage.
+
 The score is a project-defined demo index, not a recognized industry standard or SLA. For each experiment, compute five normalized dimensions in $[0,1]$:
 
 - Availability $A = \min(1, observed\_success\_rate / target\_success\_rate)$.

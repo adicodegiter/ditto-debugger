@@ -26,7 +26,7 @@ from safety.observations import SliWindowObservationProvider, unrelated_services
 from safety.policy import AbortThresholds, Policy, SafetyViolation
 from safety.recovery import HttpRecoveryChecker
 from safety.runner import ExperimentRunner, RunnerError
-from safety.scoring import calculate_resilience_score, derive_score_components
+from safety.scoring import SCORE_VERSION, calculate_resilience_score, derive_score_components, score_breakdown
 from safety.watchdog import run_watchdog
 
 HEALTHY = {
@@ -612,6 +612,42 @@ class SafetyTests(unittest.TestCase):
         })
         self.assertEqual(components["detection"], 0.5)
         self.assertNotIn("recovery", components)
+
+    def test_score_inputs_record_the_raw_values_behind_each_component(self):
+        run = {
+            "status": "completed", "baseline_write_p95_ms": 100.0, "recovery_verified": True, "recovery_time_seconds": 18.0,
+            "observations": [
+                {"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 125.0, "search_error_rate": 0.5, "unrelated_component_healthy": True},
+                {"phase": "fault", "write_error_rate": 0.1, "write_p95_ms": 200.0, "search_error_rate": 1.0, "unrelated_component_healthy": True},
+            ],
+        }
+        components, inputs = score_breakdown(run, 180.0)
+        self.assertEqual(components, {"availability": 0.0, "latency": 0.5, "recovery": 0.9, "containment": 1.0, "detection": 1.0})
+        self.assertEqual(inputs["score_version"], SCORE_VERSION)
+        self.assertEqual(inputs["availability"]["worst_search_error_rate"], 1.0)
+        self.assertEqual(inputs["availability"]["worst_write_error_rate"], 0.1)
+        self.assertEqual((inputs["latency"]["baseline_write_p95_ms"], inputs["latency"]["worst_write_p95_ms"]), (100.0, 200.0))
+        self.assertEqual((inputs["recovery"]["recovery_time_seconds"], inputs["recovery"]["budget_seconds"]), (18.0, 180.0))
+        self.assertEqual(set(inputs) - {"score_version", "weights", "fault_windows"}, set(components))
+        self.assertEqual(derive_score_components(run, 180.0), components)
+
+    def test_score_inputs_are_empty_for_dry_runs_forced_tests_and_missing_data(self):
+        fault = [{"phase": "fault", "write_error_rate": 0.0}]
+        self.assertEqual(score_breakdown({"dry_run": True, "observations": fault}), ({}, {}))
+        self.assertEqual(score_breakdown({"forced_test": True, "observations": fault}), ({}, {}))
+        self.assertEqual(score_breakdown({"observations": []}), ({}, {}))
+        components, inputs = score_breakdown({"status": "aborted", "abort_reason": "x", "observations": fault})
+        self.assertNotIn("recovery", inputs)
+        self.assertNotIn("latency", inputs)
+        self.assertEqual(inputs["detection"]["abort_reason"], "x")
+
+    def test_runner_run_record_carries_score_inputs_only_when_scored(self):
+        item = candidate(duration=10)
+        dry = self.runner(FakeDocker(), ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline, dry_run=True)
+        self.assertEqual(dry["score_inputs"], {})
+        real = self.runner(FakeDocker(), ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline)
+        self.assertEqual(real["score_inputs"]["score_version"], SCORE_VERSION)
+        self.assertEqual(set(real["score_inputs"]) - {"score_version", "weights", "fault_windows"}, set(real["score_components"]))
 
     def test_run_without_fault_observations_is_incomplete(self):
         run = {"status": "completed", "score_components": derive_score_components({"status": "completed", "observations": []})}
