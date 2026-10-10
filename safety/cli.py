@@ -37,7 +37,7 @@ from safety.watchdog import ProcessWatchdog  # noqa: E402
 class NoopWatchdog:
     """Dry runs change nothing, so there is nothing for a watchdog to undo."""
 
-    def arm(self, target: str, deadline_epoch: float) -> None:
+    def arm(self, target: str, deadline_epoch: float, action: str = "restart_container", state: Any = None) -> None:
         return None
 
     def disarm(self, handle: Any) -> None:

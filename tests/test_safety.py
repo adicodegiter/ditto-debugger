@@ -69,11 +69,17 @@ class FakeDocker:
         if self.fail_preflight:
             raise DockerCommandError("no configuration file provided")
 
-    def apply(self, action: str, target: str) -> None:
-        self.calls.append((action, target))
+    def capture(self, action: str, target: str) -> dict:
+        return {"cpu_quota": 0, "cpu_period": 0, "container_id": "abc123abc123"} if action == "cpu_throttle" else {}
 
-    def start(self, target: str) -> None:
+    def apply(self, action: str, target: str, params=None, state=None) -> None:
+        self.calls.append((action, target))
+        self.last_params = params
+
+    def rollback(self, action: str, target: str, state=None) -> None:
+        # Container actions roll back with an idempotent start (as the real recipes do).
         self.calls.append(("start", target))
+        self.last_rollback = (action, state)
         if self.fail_start:
             raise DockerCommandError("start failed")
 
@@ -111,8 +117,9 @@ class FakeWatchdog:
         self.armed: list[tuple[str, float]] = []
         self.disarmed = 0
 
-    def arm(self, target: str, deadline_epoch: float) -> str:
+    def arm(self, target: str, deadline_epoch: float, action: str = "restart_container", state=None) -> str:
         self.armed.append((target, deadline_epoch))
+        self.armed_actions = getattr(self, "armed_actions", []) + [(action, state)]
         return "handle"
 
     def disarm(self, handle: object) -> None:
@@ -407,7 +414,7 @@ class SafetyTests(unittest.TestCase):
         started: list[str] = []
 
         class Adapter:
-            def start(self, target):
+            def rollback(self, action, target, state=None):
                 started.append(target)
 
         clock = FakeClock()

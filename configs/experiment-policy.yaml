@@ -15,6 +15,8 @@ baseline_max_age_seconds: 3600
 target_risk_scores:
   gateway: 0.2
   things-search: 0.3
+  mongodb: 0.3   # cpu_throttle only
+  nginx: 0.15    # traffic_burst only
 approval:
   required: true
   expires_after_minutes: 10
@@ -29,6 +31,27 @@ actions:
     enabled: true
     duration_seconds_default: 60
     cleanup: restart_target
+  # Freezes every process in the target; rollback unpauses it.
+  pause_container:
+    enabled: true
+    duration_seconds_default: 30
+    cleanup: unpause_target
+  # Leaves the target only `cpus` CPUs (CFS quota); rollback restores the captured quota.
+  # The only action allowed on mongodb (listed explicitly; stop/restart/pause stay denied).
+  cpu_throttle:
+    enabled: true
+    targets: [mongodb, things-search]
+    cpus: 0.25
+    duration_seconds_default: 60
+    cleanup: restore_cpu_quota
+  # Extra bounded fleet load through the API entry point; ends by itself at the deadline.
+  traffic_burst:
+    enabled: true
+    targets: [nginx]
+    rate_per_second: 10
+    vehicles: 16
+    duration_seconds_default: 60
+    cleanup: stop_burst
 # Kill switch (CLAUDE.md "Kill switch thresholds"). Evaluated every poll_interval_seconds
 # while a fault is active, over the last window_seconds of SLI samples. Limits come only
 # from this file; observations can never override them.

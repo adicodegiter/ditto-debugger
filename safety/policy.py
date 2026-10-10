@@ -14,7 +14,14 @@ class SafetyViolation(ValueError):
 
 # The only actions the runner can perform. Each maps to one fixed Docker Compose
 # subcommand in safety/runner.py; a policy enabling anything else is rejected.
-SUPPORTED_ACTIONS = frozenset({"restart_container", "stop_container"})
+SUPPORTED_ACTIONS = frozenset({"restart_container", "stop_container", "pause_container", "cpu_throttle", "traffic_burst"})
+
+# Hard bounds on action parameters, whatever the policy file says.
+PARAM_BOUNDS = {
+    "cpus": (0.05, 4.0),             # cpu_throttle: CPUs left to the target
+    "rate_per_second": (1.0, 50.0),  # traffic_burst: requests/s per probe loop
+    "vehicles": (1, 50),             # traffic_burst: vehicles exercised
+}
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,17 @@ class Policy:
     recovery_timeout_seconds: float = 180.0
     recovery_poll_interval_seconds: float = 3.0
     watchdog_grace_seconds: float = 15.0
+    # Per-action target lists. An action with its own list may target only those services;
+    # a denied target is allowed only where an action lists it explicitly (e.g. mongodb for
+    # cpu_throttle). Actions without a list use allowed_targets.
+    action_targets: tuple[tuple[str, frozenset[str]], ...] = ()
+    action_params: tuple[tuple[str, tuple[tuple[str, float], ...]], ...] = ()
+
+    def targets_for(self, action: str) -> frozenset[str]:
+        return dict(self.action_targets).get(action, self.allowed_targets)
+
+    def params_for(self, action: str) -> dict[str, float]:
+        return dict(dict(self.action_params).get(action, ()))
 
     @classmethod
     def from_file(cls, path: Path) -> "Policy":
@@ -96,6 +114,26 @@ class Policy:
         enabled_actions = frozenset(
             str(name) for name, config in actions.items() if isinstance(config, dict) and config.get("enabled")
         )
+        action_targets = []
+        action_params = []
+        for name in sorted(enabled_actions):
+            config = actions.get(name, {})
+            if "targets" in config:
+                targets = config.get("targets") or []
+                if not isinstance(targets, list) or not all(isinstance(item, str) and item for item in targets):
+                    raise SafetyViolation(f"actions.{name}.targets must be a list of service names.")
+                action_targets.append((name, frozenset(targets)))
+            bounded = []
+            for key, (low, high) in PARAM_BOUNDS.items():
+                if key in config:
+                    try:
+                        value = float(config[key])
+                    except (TypeError, ValueError) as error:
+                        raise SafetyViolation(f"actions.{name}.{key} must be a number.") from error
+                    if not low <= value <= high:
+                        raise SafetyViolation(f"actions.{name}.{key}={value} is outside the hard bounds {low}..{high}.")
+                    bounded.append((key, value))
+            action_params.append((name, tuple(bounded)))
         unsupported = enabled_actions - SUPPORTED_ACTIONS
         if unsupported:
             raise SafetyViolation(f"Policy enables unsupported actions: {sorted(unsupported)}.")
@@ -111,6 +149,8 @@ class Policy:
             approval_required=bool(approval.get("required", True)),
             approval_expires_after_minutes=int(approval.get("expires_after_minutes", 0)),
             enabled_actions=enabled_actions,
+            action_targets=tuple(action_targets),
+            action_params=tuple(action_params),
             abort_conditions=tuple(str(item) for item in raw.get("abort_conditions", [])),
             thresholds=AbortThresholds.from_mapping(raw.get("abort_thresholds")),
             recovery_timeout_seconds=float(recovery.get("timeout_seconds", 180)),
@@ -128,10 +168,13 @@ class Policy:
         action = candidate.get("action")
         duration = candidate.get("duration_seconds")
         risk = candidate.get("risk_score")
-        if not isinstance(target, str) or target not in self.allowed_targets or target in self.denied_targets:
-            raise SafetyViolation("Target is not allowlisted by the local experiment policy.")
         if not isinstance(action, str) or action not in self.enabled_actions:
             raise SafetyViolation("Action is not enabled by the local experiment policy.")
+        explicit = dict(self.action_targets).get(action)
+        if not isinstance(target, str) or target not in self.targets_for(action):
+            raise SafetyViolation("Target is not allowlisted for this action by the local experiment policy.")
+        if target in self.denied_targets and (explicit is None or target not in explicit):
+            raise SafetyViolation("Target is denied by the local experiment policy.")
         if not isinstance(duration, int) or isinstance(duration, bool) or duration < 1 or duration > self.max_duration_seconds:
             raise SafetyViolation("Experiment duration exceeds the policy limit.")
         if not isinstance(risk, (int, float)) or isinstance(risk, bool) or not math.isfinite(risk) or risk < 0 or risk > self.max_risk_score:
