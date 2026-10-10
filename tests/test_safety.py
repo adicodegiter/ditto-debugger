@@ -531,11 +531,14 @@ class SafetyTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-            for latency in (10, 20, 30, 40):
-                append_jsonl(root / "write.jsonl", {"kind": "write", "source": "live", "success": True, "latency_ms": latency, "timestamp": now})
-                append_jsonl(root / "search.jsonl", {"kind": "search", "source": "live", "success": True, "latency_ms": latency, "timestamp": now})
-                append_jsonl(root / "freshness.jsonl", {"kind": "freshness", "source": "live", "freshness_seconds": 1.0, "timestamp": now})
+            # One live run spanning 130 s (baselines need >= 120 s of one run).
+            start = datetime.now(timezone.utc) - timedelta(seconds=135)
+            for index, latency in enumerate((10, 20, 30, 40)):
+                ts = (start + timedelta(seconds=index * 130 / 3)).isoformat().replace("+00:00", "Z")
+                common = {"source": "live", "run_id": "run-baseline", "timestamp": ts}
+                append_jsonl(root / "write.jsonl", {"kind": "write", "success": True, "latency_ms": latency, **common})
+                append_jsonl(root / "search.jsonl", {"kind": "search", "success": True, "latency_ms": latency, **common})
+                append_jsonl(root / "freshness.jsonl", {"kind": "freshness", "freshness_seconds": 1.0, **common})
             repository = LocalRepository(root / "db.sqlite3")
             stored = repository.save_baseline("graph-1", baseline_from_metrics(root))
             baseline = repository.get_baseline(stored["baseline_id"])

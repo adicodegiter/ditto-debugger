@@ -133,6 +133,10 @@ def summarize_freshness_samples(samples: list[dict[str, Any]], now: datetime | N
         if isinstance(recorded_freshness, (int, float)) and math.isfinite(float(recorded_freshness)):
             freshness_values.append(max(0.0, float(recorded_freshness)))
             continue
+        if item.get("success") is False:
+            # A failed read has no measured staleness. Computing "now - observed_at" here
+            # would grow with the time the summary runs (it reported 255 s for a 10 s max).
+            continue
         observed_at = item.get("observed_at") or item.get("telemetry_timestamp")
         if not observed_at:
             continue

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from typing import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -70,13 +71,39 @@ def _find_thing_id(value: Any) -> str | None:
     return None
 
 
+def arrival_record(vehicle_id: str, last_seen: str, received_at: datetime | None = None) -> dict[str, Any]:
+    """Staleness of one telemetry change at the moment it arrived on the SSE stream."""
+    received = (received_at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    record: dict[str, Any] = {"vehicle_id": vehicle_id, "observed_at": last_seen,
+                              "received_at": received.isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+    try:
+        parsed = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+    except ValueError:
+        return {**record, "success": False, "error": "InvalidTelemetryTimestamp"}
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return {**record, "success": True, "freshness_seconds": max(0.0, (received - parsed.astimezone(timezone.utc)).total_seconds())}
+
+
 class FreshnessSseSubscriber:
     """Local Ditto SSE subscriber that tracks the latest telemetry timestamp."""
 
-    def __init__(self, api_base: str, vehicle_ids: list[str], auth: tuple[str, str]) -> None:
+    def __init__(
+        self,
+        api_base: str,
+        vehicle_ids: list[str],
+        auth: tuple[str, str],
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+        read_timeout_s: float = 30.0,
+    ) -> None:
         self.url = f"{api_base.rstrip('/')}/things"
         self.vehicle_ids = set(vehicle_ids)
         self.auth = auth
+        # Called once per telemetry event *as it arrives*, with the end-to-end staleness
+        # (received_at - last_seen). This is the freshness SLI: measured when the change is
+        # seen on the stream, not when some other loop happens to look.
+        self.on_event = on_event
+        self.read_timeout_s = read_timeout_s
         self._latest: dict[str, str] = {}
         self._error: str | None = None
         self._stop = threading.Event()
@@ -121,15 +148,20 @@ class FreshnessSseSubscriber:
                     headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
                     auth=self.auth,
                     stream=True,
-                    timeout=(10, 2),
+                    timeout=(10, self.read_timeout_s),
                 ) as response:
                     response.raise_for_status()
                     self._error = None
-                    for event in parse_sse_events(response.iter_lines(decode_unicode=True)):
+                    # chunk_size=1: hand bytes over as they arrive (the stream is ~1 KB/s). The default
+                    # 512-byte chunks held each ~150-byte event back until ~3 more arrived, which
+                    # added ~1.5 s of fake staleness.
+                    for event in parse_sse_events(response.iter_lines(chunk_size=1, decode_unicode=True)):
                         vehicle_id = _find_thing_id(event)
                         last_seen = _find_last_seen(event)
                         if vehicle_id in self.vehicle_ids and last_seen:
                             self._latest[vehicle_id] = last_seen
+                            if self.on_event is not None:
+                                self.on_event(arrival_record(vehicle_id, last_seen))
                         if self._stop.is_set():
                             return
             except (requests.RequestException, OSError) as error:
