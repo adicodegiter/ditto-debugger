@@ -22,6 +22,7 @@
     "recovery_time_seconds": { "type": "number", "minimum": 0 },
     "baseline_valid": { "type": "boolean" },
     "score_components": { "type": "object" },
+    "score_inputs": { "type": "object" },
     "resilience_score": { "type": "object" },
     "timeline": { "type": "object", "additionalProperties": { "type": "string", "format": "date-time" } },
     "watchdog": { "type": "object", "properties": { "armed": { "type": "boolean" }, "deadline": { "type": "string", "format": "date-time" } } },
