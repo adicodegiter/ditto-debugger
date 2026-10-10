@@ -17,7 +17,7 @@ flowchart LR
 
 The workbench reads local Compose/Kubernetes manifests, configured loopback telemetry, and documented Ditto architecture. The graph keeps configured, documented, runtime-observed, and manual provenance distinct; unobserved paths are never presented as runtime calls. Each graph snapshot is versioned and includes impacted-component paths and the SLI tags associated with each node.
 
-The canonical M1 export is generated with `python tools/export_topology.py`. It writes the schema-compatible inventory to `data/inventory.json` and the current evidence-backed graph to `ai/dependency_map.json`; the command refuses partial discovery or policy targets absent from the pinned manifest.
+The canonical M1 export is generated with `python tools/export_topology.py`. It writes the schema-compatible inventory to `data/inventory.json` and the current evidence-backed graph to `ai/dependency_map.json`; the command refuses partial discovery or policy targets absent from the pinned manifest. It resolves image tags and ports from `deploy/image-pins.env`, and adds the workbench's own components and calls as `manual` nodes and edges. `python -m ai.dependency_map` runs the same export and renders the Mermaid page [docs/dependency-map.md](dependency-map.md); `--check` fails if either file is out of date.
 
 ## How The AI Decides
 

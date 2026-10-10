@@ -15,7 +15,7 @@
       "source": "ditto_docs:architecture-overview"
     }
   ],
-  "created_at": "2026-10-10T10:39:40.497766+00:00",
+  "created_at": "2026-10-10T10:49:18.655447+00:00",
   "criticality": {
     "connectivity": {
       "configured_dependents": 0,
@@ -256,9 +256,141 @@
       "runtime_observed": false,
       "source": "things-search",
       "target": "policies"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: write SLI: PUT /api/2/things/{id}/features/telemetry/properties",
+      "provenance_type": "manual",
+      "relation": "http_telemetry_write",
+      "runtime_observed": false,
+      "source": "fleet-workload",
+      "target": "nginx"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: search SLI: GET /api/2/search/things",
+      "provenance_type": "manual",
+      "relation": "http_search_query",
+      "runtime_observed": false,
+      "source": "fleet-workload",
+      "target": "nginx"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: freshness SLI: SSE stream of telemetry changes",
+      "provenance_type": "manual",
+      "relation": "sse_subscription",
+      "runtime_observed": false,
+      "source": "fleet-workload",
+      "target": "nginx"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: append SLI samples",
+      "provenance_type": "manual",
+      "relation": "writes_samples",
+      "runtime_observed": false,
+      "source": "fleet-workload",
+      "target": "data-metrics"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: baseline from the latest live run",
+      "provenance_type": "manual",
+      "relation": "reads_samples",
+      "runtime_observed": false,
+      "source": "workbench-api",
+      "target": "data-metrics"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: kill-switch window (last 30 s)",
+      "provenance_type": "manual",
+      "relation": "reads_samples",
+      "runtime_observed": false,
+      "source": "operator-cli",
+      "target": "data-metrics"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: /health and an authenticated canary",
+      "provenance_type": "manual",
+      "relation": "http_recovery_check",
+      "runtime_observed": false,
+      "source": "operator-cli",
+      "target": "nginx"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: armed before injection, disarmed after clean rollback",
+      "provenance_type": "manual",
+      "relation": "arms_watchdog",
+      "runtime_observed": false,
+      "source": "operator-cli",
+      "target": "watchdog"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: allow-listed fault action and rollback",
+      "provenance_type": "manual",
+      "relation": "docker_compose_action",
+      "runtime_observed": false,
+      "source": "operator-cli",
+      "target": "things-search"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: allow-listed fault action and rollback",
+      "provenance_type": "manual",
+      "relation": "docker_compose_action",
+      "runtime_observed": false,
+      "source": "operator-cli",
+      "target": "gateway"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: deadline cleanup",
+      "provenance_type": "manual",
+      "relation": "docker_compose_start",
+      "runtime_observed": false,
+      "source": "watchdog",
+      "target": "things-search"
+    },
+    {
+      "confidence": 1.0,
+      "evidence_type": "operator",
+      "impact_direction": "none",
+      "provenance": "manual: deadline cleanup",
+      "provenance_type": "manual",
+      "relation": "docker_compose_start",
+      "runtime_observed": false,
+      "source": "watchdog",
+      "target": "gateway"
     }
   ],
-  "graph_version": "b95db81ba7e6c1ab",
+  "graph_version": "eb1685d17ee80fb3",
   "impact_paths": {
     "connectivity": [
       {
@@ -1171,11 +1303,12 @@
       ],
       "health_url": "http://connectivity:7626/alive",
       "id": "connectivity",
-      "image": "docker.io/eclipse/ditto-connectivity:${DITTO_VERSION:-3.9.8}",
+      "image": "docker.io/eclipse/ditto-connectivity:3.9.8",
       "kind": "ditto_service",
       "labels": {
         "ditto_role": "Connectivity",
-        "image": "docker.io/eclipse/ditto-connectivity:${DITTO_VERSION:-3.9.8}",
+        "image": "docker.io/eclipse/ditto-connectivity:3.9.8",
+        "image_declared": "docker.io/eclipse/ditto-connectivity:${DITTO_VERSION:-3.9.8}",
         "manifest_kind": "compose",
         "metrics_endpoint_scope": "compose_network"
       },
@@ -1193,10 +1326,11 @@
       "health_checks": [],
       "health_url": null,
       "id": "ditto-ui",
-      "image": "docker.io/eclipse/ditto-ui:${DITTO_VERSION:-3.9.8}",
+      "image": "docker.io/eclipse/ditto-ui:3.9.8",
       "kind": "ditto_service",
       "labels": {
-        "image": "docker.io/eclipse/ditto-ui:${DITTO_VERSION:-3.9.8}",
+        "image": "docker.io/eclipse/ditto-ui:3.9.8",
+        "image_declared": "docker.io/eclipse/ditto-ui:${DITTO_VERSION:-3.9.8}",
         "manifest_kind": "compose",
         "metrics_endpoint_scope": "compose_network"
       },
@@ -1226,13 +1360,15 @@
       ],
       "health_url": "http://gateway:7626/alive",
       "id": "gateway",
-      "image": "docker.io/eclipse/ditto-gateway:${DITTO_VERSION:-3.9.8}",
+      "image": "docker.io/eclipse/ditto-gateway:3.9.8",
       "kind": "ditto_service",
       "labels": {
         "ditto_role": "Gateway",
-        "image": "docker.io/eclipse/ditto-gateway:${DITTO_VERSION:-3.9.8}",
+        "image": "docker.io/eclipse/ditto-gateway:3.9.8",
+        "image_declared": "docker.io/eclipse/ditto-gateway:${DITTO_VERSION:-3.9.8}",
         "manifest_kind": "compose",
-        "metrics_endpoint_scope": "compose_network"
+        "metrics_endpoint_scope": "compose_network",
+        "workbench_slis": "freshness,search,write"
       },
       "metrics_url": "http://gateway:9095/",
       "name": "gateway",
@@ -1255,11 +1391,13 @@
       "health_checks": [],
       "health_url": null,
       "id": "mongodb",
-      "image": "docker.io/mongo:${MONGO_VERSION:-7.0.14}",
+      "image": "docker.io/mongo:7.0.14",
       "kind": "database",
       "labels": {
-        "image": "docker.io/mongo:${MONGO_VERSION:-7.0.14}",
-        "manifest_kind": "compose"
+        "image": "docker.io/mongo:7.0.14",
+        "image_declared": "docker.io/mongo:${MONGO_VERSION:-7.0.14}",
+        "manifest_kind": "compose",
+        "workbench_slis": "freshness,search,write"
       },
       "metrics_url": null,
       "name": "mongodb",
@@ -1282,15 +1420,24 @@
       "health_checks": [],
       "health_url": null,
       "id": "nginx",
-      "image": "docker.io/nginx:${NGINX_VERSION:-1.27.2-alpine}",
+      "image": "docker.io/nginx:1.27.2-alpine",
       "kind": "proxy",
       "labels": {
-        "image": "docker.io/nginx:${NGINX_VERSION:-1.27.2-alpine}",
-        "manifest_kind": "compose"
+        "image": "docker.io/nginx:1.27.2-alpine",
+        "image_declared": "docker.io/nginx:${NGINX_VERSION:-1.27.2-alpine}",
+        "manifest_kind": "compose",
+        "workbench_slis": "freshness,search,write"
       },
       "metrics_url": null,
       "name": "nginx",
-      "ports": [],
+      "ports": [
+        {
+          "container_port": 80,
+          "host_ip": "127.0.0.1",
+          "host_port": 8080,
+          "protocol": "tcp"
+        }
+      ],
       "schema_version": "1.0",
       "source": "compose"
     },
@@ -1313,13 +1460,15 @@
       ],
       "health_url": "http://policies:7626/alive",
       "id": "policies",
-      "image": "docker.io/eclipse/ditto-policies:${DITTO_VERSION:-3.9.8}",
+      "image": "docker.io/eclipse/ditto-policies:3.9.8",
       "kind": "ditto_service",
       "labels": {
         "ditto_role": "Policies",
-        "image": "docker.io/eclipse/ditto-policies:${DITTO_VERSION:-3.9.8}",
+        "image": "docker.io/eclipse/ditto-policies:3.9.8",
+        "image_declared": "docker.io/eclipse/ditto-policies:${DITTO_VERSION:-3.9.8}",
         "manifest_kind": "compose",
-        "metrics_endpoint_scope": "compose_network"
+        "metrics_endpoint_scope": "compose_network",
+        "workbench_slis": "freshness,search,write"
       },
       "metrics_url": "http://policies:9095/",
       "name": "policies",
@@ -1347,13 +1496,15 @@
       ],
       "health_url": "http://things:7626/alive",
       "id": "things",
-      "image": "docker.io/eclipse/ditto-things:${DITTO_VERSION:-3.9.8}",
+      "image": "docker.io/eclipse/ditto-things:3.9.8",
       "kind": "ditto_service",
       "labels": {
         "ditto_role": "Things",
-        "image": "docker.io/eclipse/ditto-things:${DITTO_VERSION:-3.9.8}",
+        "image": "docker.io/eclipse/ditto-things:3.9.8",
+        "image_declared": "docker.io/eclipse/ditto-things:${DITTO_VERSION:-3.9.8}",
         "manifest_kind": "compose",
-        "metrics_endpoint_scope": "compose_network"
+        "metrics_endpoint_scope": "compose_network",
+        "workbench_slis": "freshness,write"
       },
       "metrics_url": "http://things:9095/",
       "name": "things",
@@ -1382,19 +1533,106 @@
       ],
       "health_url": "http://things-search:7626/alive",
       "id": "things-search",
-      "image": "docker.io/eclipse/ditto-things-search:${DITTO_VERSION:-3.9.8}",
+      "image": "docker.io/eclipse/ditto-things-search:3.9.8",
       "kind": "ditto_service",
       "labels": {
         "ditto_role": "Things-Search",
-        "image": "docker.io/eclipse/ditto-things-search:${DITTO_VERSION:-3.9.8}",
+        "image": "docker.io/eclipse/ditto-things-search:3.9.8",
+        "image_declared": "docker.io/eclipse/ditto-things-search:${DITTO_VERSION:-3.9.8}",
         "manifest_kind": "compose",
-        "metrics_endpoint_scope": "compose_network"
+        "metrics_endpoint_scope": "compose_network",
+        "workbench_slis": "search"
       },
       "metrics_url": "http://things-search:9095/",
       "name": "things-search",
       "ports": [],
       "schema_version": "1.0",
       "source": "compose"
+    },
+    {
+      "affected_slis": [],
+      "confidence": 1.0,
+      "health_checks": [],
+      "id": "fleet-workload",
+      "image": null,
+      "kind": "load_generator",
+      "labels": {
+        "module": "simulator/fleet_workload.py",
+        "provenance_type": "manual",
+        "purpose": "writes vehicle telemetry; probes write, search and freshness (SSE) SLIs"
+      },
+      "name": "fleet-workload",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "operator"
+    },
+    {
+      "affected_slis": [],
+      "confidence": 1.0,
+      "health_checks": [],
+      "id": "workbench-api",
+      "image": null,
+      "kind": "support",
+      "labels": {
+        "module": "backend/app",
+        "provenance_type": "manual",
+        "purpose": "discovery, mapping, baseline, planning, approval records; never executes faults"
+      },
+      "name": "workbench-api",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "operator"
+    },
+    {
+      "affected_slis": [],
+      "confidence": 1.0,
+      "health_checks": [],
+      "id": "operator-cli",
+      "image": null,
+      "kind": "support",
+      "labels": {
+        "module": "safety/cli.py",
+        "provenance_type": "manual",
+        "purpose": "runner: steady-state check, live kill switch, rollback, recovery check"
+      },
+      "name": "operator-cli",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "operator"
+    },
+    {
+      "affected_slis": [],
+      "confidence": 1.0,
+      "health_checks": [],
+      "id": "watchdog",
+      "image": null,
+      "kind": "support",
+      "labels": {
+        "module": "safety/watchdog.py",
+        "provenance_type": "manual",
+        "purpose": "independent max-duration cleanup, even if the runner dies"
+      },
+      "name": "watchdog",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "operator"
+    },
+    {
+      "affected_slis": [],
+      "confidence": 1.0,
+      "health_checks": [],
+      "id": "data-metrics",
+      "image": null,
+      "kind": "support",
+      "labels": {
+        "module": "data/metrics/*.jsonl",
+        "provenance_type": "manual",
+        "purpose": "SLI samples (JSON Lines) read by baseline and kill switch"
+      },
+      "name": "data-metrics",
+      "ports": [],
+      "schema_version": "1.0",
+      "source": "operator"
     }
   ],
   "schema_version": "1.0",
