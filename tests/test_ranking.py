@@ -31,6 +31,18 @@ class RankingTests(unittest.TestCase):
                                        {"phase": "recovered", "write_error_rate": 0.2, "search_error_rate": 0.0}])
         self.assertEqual([f["id"] for f in generate_findings(quiet)], ["q-absorbed"])
 
+    def test_kill_switch_abort_is_a_high_finding_but_not_for_forced_or_dry_runs(self):
+        aborted = run("a", status="aborted", abort_reason="p95_latency_above_baseline_multiplier",
+                      observations=[{"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 455.0, "search_error_rate": 0.0}])
+        findings = generate_findings(aborted)
+        abort = next(f for f in findings if f["id"] == "a-kill-switch-abort")
+        self.assertEqual(abort["severity"], "high")
+        self.assertIn("abort:p95_latency_above_baseline_multiplier", abort["evidence"])
+        self.assertNotIn("a-absorbed", [f["id"] for f in findings])
+        self.assertEqual(rank_findings([aborted], findings)[0]["finding_id"], "a-kill-switch-abort")
+        for flag in ("forced_test", "dry_run"):
+            self.assertNotIn("a-kill-switch-abort", [f["id"] for f in generate_findings({**aborted, flag: True})])
+
     def test_ranks_by_severity_then_confidence_and_numbers_from_run(self):
         runs = [run("r1"), run("r2", recovery_verified=False)]
         findings = generate_findings(runs[0]) + generate_findings(runs[1])
