@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import base64
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .agents.discovery import DittoDiscoveryAgent
@@ -11,38 +14,63 @@ from .settings import Settings
 from .store import LocalRepository
 from safety.policy import Policy
 from safety.runner import ExperimentRunner, RunnerError, SubprocessDockerAdapter
+from monitor.window import baseline_from_metrics, window_stats
+from ai.report import generate_findings
 
 
 class _ObservationProvider:
-    def __init__(self, telemetry_agent: TelemetryObservabilityAgent) -> None:
-        self.telemetry_agent = telemetry_agent
+    def __init__(self, metrics_dir, baseline: dict[str, Any], thresholds_file) -> None:
+        self.metrics_dir = metrics_dir
+        self.baseline = baseline
+        self.thresholds_file = thresholds_file
 
     def observe(self) -> dict[str, Any]:
-        result = self.telemetry_agent.collect()
-        return {
-            "telemetry_available": result.get("status") == "available",
-            "baseline_healthy": result.get("status") == "available",
-            "unrelated_component_healthy": result.get("status") == "available",
-            "error_rate": 0.0,
-            "observed_at": result.get("observed_at"),
-            "coverage": result.get("coverage", 0.0),
-        }
+        return window_stats(self.metrics_dir, last_s=30, baseline=self.baseline, thresholds_file=self.thresholds_file)
 
 
 class _RecoveryChecker:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, username: str | None = None, password: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
+        self.auth_header = None
+        if username and password:
+            token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+            self.auth_header = f"Basic {token}"
 
     def verify(self, target: str) -> dict[str, Any]:
-        try:
-            with urlopen(Request(f"{self.base_url}/alive", headers={"Accept": "*/*"}), timeout=3) as response:
-                healthy = response.status == 200
-            canary_path = "/api/2/search/things?filter=eq(thingId,%22urn:ditto:thing:synthetic%22)" if target == "things-search" else "/api/2/things?limit=1"
-            with urlopen(Request(f"{self.base_url}{canary_path}", headers={"Accept": "application/json"}), timeout=3) as response:
-                canary = 200 <= response.status < 500
-            return {"target": target, "healthy": healthy, "canary": canary}
-        except OSError as error:
-            return {"target": target, "healthy": False, "canary": False, "error": type(error).__name__}
+        canary_path = "/api/2/search/things?option=size(1)" if target == "things-search" else "/api/2/things?limit=1"
+        started = datetime.now(timezone.utc).timestamp()
+        deadline = started + 60
+        while datetime.now(timezone.utc).timestamp() < deadline:
+            try:
+                health_headers = {"Accept": "*/*"}
+                if self.auth_header:
+                    health_headers["Authorization"] = self.auth_header
+                with urlopen(Request(f"{self.base_url}/health", headers=health_headers), timeout=3) as response:
+                    healthy = response.status == 200
+                canary_headers = {"Accept": "application/json"}
+                if self.auth_header:
+                    canary_headers["Authorization"] = self.auth_header
+                request = Request(f"{self.base_url}{canary_path}", headers=canary_headers)
+                with urlopen(request, timeout=3) as response:
+                    canary = response.status == 200
+                if healthy and canary:
+                    return {
+                        "target": target,
+                        "healthy": True,
+                        "canary": True,
+                        "recovery_time_seconds": datetime.now(timezone.utc).timestamp() - started,
+                    }
+            except (HTTPError, URLError, OSError):
+                pass
+            import time
+            time.sleep(2)
+        return {
+            "target": target,
+            "healthy": False,
+            "canary": False,
+            "error": "recovery_timeout",
+            "recovery_time_seconds": datetime.now(timezone.utc).timestamp() - started,
+        }
 
 
 class AgentOrchestrator:
@@ -68,15 +96,18 @@ class AgentOrchestrator:
         graph = self.discover_architecture()
         if graph["status"] != "available":
             raise ValueError("No discovered deployment is available for a baseline.")
-        telemetry = self.collect_telemetry()
+        telemetry = baseline_from_metrics(
+            self.settings.metrics_dir,
+            thresholds_file=self.settings.policy_path.parent / "telemetry.yaml",
+        )
         return self.repository.save_baseline(graph["graph_version"], telemetry)
 
     def plan_experiments(self, baseline_id: str, max_candidates: int) -> dict[str, Any]:
         graph = self.discover_architecture()
-        telemetry = self.collect_telemetry()
         baseline = self.repository.get_baseline(baseline_id)
         if baseline is None:
             raise LookupError("Baseline was not found.")
+        telemetry = baseline["telemetry"]
         plan = self.planning_agent.plan(graph, telemetry, baseline, max_candidates)
         return self.repository.save_plan(plan)
 
@@ -106,13 +137,22 @@ class AgentOrchestrator:
         runner = ExperimentRunner(
             self.policy,
             SubprocessDockerAdapter(),
-            _ObservationProvider(self.telemetry_agent),
-            _RecoveryChecker(self.settings.ditto_base_url),
+            _ObservationProvider(
+                self.settings.metrics_dir,
+                baseline.get("telemetry", baseline),
+                self.settings.policy_path.parent / "telemetry.yaml",
+            ),
+            _RecoveryChecker(
+                self.settings.ditto_base_url,
+                self.settings.ditto_username,
+                self.settings.ditto_password,
+            ),
             audit=self.repository.record_audit,
             consume_approval=self.repository.consume_approval,
         )
         run = runner.execute(experiment, experiment.get("approval"), baseline)
         self.repository.save_run(run)
+        self.repository.save_findings(run["run_id"], generate_findings(run))
         return run
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:

@@ -83,6 +83,16 @@ python simulator/smoke_test.py           # policy -> thing -> update -> read bac
 | `bash deploy/reset.sh --wipe-data` | Also deletes the MongoDB volume (asks for confirmation) |
 | `python simulator/smoke_test.py` | 5-step end-to-end API check, exit 0 = all PASS (`--help` for options) |
 
+For the bounded fleet workload and baseline metrics used by the Workload & Measurement role, run:
+
+```bash
+python simulator/fleet_workload.py --duration-seconds 30 --metrics-dir data/metrics
+python -m monitor.cli --metrics-dir data/metrics
+```
+
+The workload records JSON Lines in `data/metrics/*.jsonl` for the write, search, and freshness SLIs; the monitor CLI summarizes success rate, latency percentiles, and freshness windows without inventing missing data.
+The control plane reads these live client-side samples for its last 30-second observation window, so Prometheus is optional for experiment detection. Missing any required SLI fails closed. During an approved experiment it samples every two seconds, restores the target, polls `/health` and a functional canary for up to 60 seconds, and stores deterministic findings at `/api/v1/findings`.
+
 - API: `http://127.0.0.1:8080/api/2/` (sample basic auth `ditto:ditto`, loopback only)
 - Ditto UI: `http://127.0.0.1:8080/ui/`
 - No Swagger UI. Upstream's `swagger-ui` service and `/apidoc` route were removed because they aren't needed. For
