@@ -198,8 +198,12 @@ class ExperimentRunner:
                     self.audit("experiment_aborted", {"run_id": run_id, "reason": decision.reason})
                     break
             if forced_test:
-                # The test passes only if the kill switch fired during the fault.
-                run["forced_test_passed"] = run["status"] == "aborted"
+                # The test passes only if the kill switch fired during the fault *because of the
+                # lowered limit*. An abort for any other reason (e.g. missing samples) does not
+                # prove the threshold path.
+                run["forced_test_passed"] = (
+                    run["status"] == "aborted" and run.get("abort_reason") == "p95_latency_above_baseline_multiplier"
+                )
             if run["status"] == "running":
                 run["status"] = "recovering"
         except Exception as error:  # noqa: BLE001 - any failure must still reach cleanup

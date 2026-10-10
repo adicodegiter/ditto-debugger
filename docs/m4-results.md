@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-10 (Day 1)
 **Target:** Eclipse Ditto 3.9.8, local Docker Compose (`deploy/ditto`)
-**Approved by:** radhikakumar0705
+**Approved by:** radhikakumar0705. The approvals were given in chat and recorded with `safety.cli approve --yes`. After review, `--yes` was removed: approvals now have to be typed (`APPROVE`) at an interactive terminal.
 **How it was run:** [docs/m4-runbook.md](m4-runbook.md)
 
 Raw run records are in `data/experiments/` (gitignored): `run-c8b30b07c9f3.json`, `run-d3f744a96f7a-forced-test.json` and `watchdog.jsonl`.

@@ -6,7 +6,7 @@ changes a container.
 
     python -m safety.cli baseline                       # capture a baseline from live SLI samples
     python -m safety.cli plan BASELINE_ID               # ranked candidates from the planner
-    python -m safety.cli approve EXPERIMENT_ID --by NAME --reason TEXT
+    python -m safety.cli approve EXPERIMENT_ID --by NAME --reason TEXT   # interactive: type APPROVE
     python -m safety.cli execute EXPERIMENT_ID --dry-run
     CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute EXPERIMENT_ID
     CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute EXPERIMENT_ID --forced-test
@@ -116,10 +116,13 @@ def cmd_approve(args: argparse.Namespace) -> int:
     print(f"Hypothesis: {experiment['hypothesis']}")
     print(f"Predicted : {experiment.get('predicted_slis', experiment['predicted_impacts'])}")
     print(f"Hash      : {experiment['candidate_hash']}")
-    if not args.yes:
-        if input("Type APPROVE to record this human approval: ").strip() != "APPROVE":
-            print("Not approved.")
-            return 1
+    # A human approval must be typed by a human: no --yes flag, and no piped or scripted stdin.
+    if not sys.stdin.isatty():
+        print("Refused: approvals must be typed by a human at an interactive terminal.", file=sys.stderr)
+        return 2
+    if input("Type APPROVE to record this human approval: ").strip() != "APPROVE":
+        print("Not approved.")
+        return 1
     try:
         approval = orchestrator.record_approval(
             args.experiment_id, "approve", f"approved_by={args.by}; {args.reason}", experiment["candidate_hash"]
@@ -177,7 +180,6 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("experiment_id")
     approve.add_argument("--by", required=True, help="name of the approving human")
     approve.add_argument("--reason", required=True)
-    approve.add_argument("--yes", action="store_true", help="skip the interactive confirmation")
     approve.set_defaults(handler=cmd_approve)
 
     execute = sub.add_parser("execute", help="run one approved, immutable experiment")
