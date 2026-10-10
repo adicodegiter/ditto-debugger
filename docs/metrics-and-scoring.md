@@ -21,6 +21,8 @@ Ditto's official operations docs describe Prometheus metrics on each service's p
 
 ## Reproducible Score
 
+Scores are never produced for dry runs: a dry run exercises preflight and records the commands that would run, but it does not create fault evidence. Forced kill-switch tests are also excluded because they validate the safety path rather than resilience. Availability uses the worst observed error rate across both write and search paths, so a search outage cannot appear healthy merely because writes continued. Detection is recorded as `1.0` for a completed run and `0.5` when an abort reason is recorded; this project convention rewards completed operation while retaining evidence that the kill switch detected a problem. Runs with no fault observations remain `incomplete`.
+
 The score is a project-defined demo index, not a recognized industry standard or SLA. For each experiment, compute five normalized dimensions in $[0,1]$:
 
 - Availability $A = \min(1, observed\_success\_rate / target\_success\_rate)$.
