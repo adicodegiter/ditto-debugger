@@ -47,6 +47,9 @@ class AgentOrchestrator:
             self.settings.metrics_dir,
             thresholds_file=self.settings.policy_path.parent / "telemetry.yaml",
         )
+        if telemetry.get("status") != "available":
+            reasons = telemetry.get("warnings") or ["telemetry is not healthy"]
+            raise ValueError("Baseline refused: " + "; ".join(reasons))
         return self.repository.save_baseline(graph["graph_version"], telemetry)
 
     def plan_experiments(self, baseline_id: str, max_candidates: int) -> dict[str, Any]:

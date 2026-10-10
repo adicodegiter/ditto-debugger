@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -7,14 +8,60 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import requests
+from unittest.mock import patch
 
 from ai.report import generate_findings
 from monitor.sli import append_jsonl, baseline_summary, load_thresholds, summarize_freshness_samples, summarize_metrics
-from monitor.window import window_stats
+from monitor.window import baseline_from_metrics, window_stats
+from monitor.container import capture_container_metrics
+from monitor.sse import FreshnessSseSubscriber, parse_sse_events
 from simulator.fleet_workload import _run_freshness_probe, _run_search_probe, _run_write_probe
 
 
 class MeasurementSliTests(unittest.TestCase):
+    def test_sse_parser_reads_json_data_events(self):
+        events = list(parse_sse_events([
+            "event: thing\n",
+            'data: {"thingId":"bosch.fleet:vehicle-01","features":{"telemetry":{"properties":{"last_seen":"2026-10-10T10:00:00Z"}}}}\n',
+            "\n",
+        ]))
+        self.assertEqual(events[0]["thingId"], "bosch.fleet:vehicle-01")
+
+    def test_sse_subscriber_calculates_freshness_from_latest_event(self):
+        subscriber = FreshnessSseSubscriber("http://local/api/2", ["bosch.fleet:vehicle-01"], ("ditto", "ditto"))
+        subscriber._latest["bosch.fleet:vehicle-01"] = datetime.now(timezone.utc).isoformat()
+        subscriber._latest_freshness["bosch.fleet:vehicle-01"] = 0.012
+        sample = subscriber.sample("bosch.fleet:vehicle-01")
+        self.assertTrue(sample["success"])
+        self.assertEqual(sample["freshness_seconds"], 0.012)
+
+    def test_saved_baseline_file_alone_never_becomes_the_baseline(self):
+        # A saved file is written when a run *ends*; while a new run is going it would describe
+        # the previous run. Baselines come only from the live samples of the latest run.
+        with tempfile.TemporaryDirectory() as directory:
+            metrics = Path(directory) / "metrics"
+            metrics.mkdir()
+            baselines = Path(directory) / "baselines"
+            baselines.mkdir()
+            summary = {"status": "healthy", "write": {}, "search": {}, "freshness": {}}
+            (baselines / "baseline-run.json").write_text(json.dumps({
+                "baseline_id": "baseline-run",
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "source": "client-sli-jsonl",
+                "status": "healthy",
+                "summary": summary,
+            }), encoding="utf-8")
+            baseline = baseline_from_metrics(metrics)
+        self.assertEqual(baseline["status"], "unavailable")
+        self.assertTrue(baseline["warnings"])
+
+    def test_container_metrics_capture_is_local_and_jsonl(self):
+        completed = Mock(returncode=0, stdout='{"Name":"ditto-things-search-1","CPUPerc":"2.5%","MemPerc":"1%"}\n', stderr="")
+        with tempfile.TemporaryDirectory() as directory, patch("monitor.container.subprocess.run", return_value=completed) as run:
+            records = capture_container_metrics(directory)
+            self.assertEqual(records[0]["container"], "ditto-things-search-1")
+            self.assertEqual(run.call_args.args[0][:3], ["docker", "stats", "--no-stream"])
+            self.assertTrue((Path(directory) / "container.jsonl").is_file())
     def test_window_stats_counts_search_outage_as_error(self):
         with tempfile.TemporaryDirectory() as directory:
             now = datetime(2026, 10, 10, 13, 0, 30, tzinfo=timezone.utc)
@@ -31,7 +78,8 @@ class MeasurementSliTests(unittest.TestCase):
                     record["freshness_seconds"] = 1
                 append_jsonl(Path(directory) / f"{kind}.jsonl", record)
             stats = window_stats(directory, last_s=30, now=now)
-            self.assertEqual(stats["error_rate"], 1.0)
+            self.assertEqual(stats["error_rate"], 0.0)
+            self.assertEqual(stats["search_error_rate"], 1.0)
             self.assertTrue(stats["telemetry_available"])
             self.assertTrue(stats["baseline_healthy"])
 
@@ -107,6 +155,17 @@ class MeasurementSliTests(unittest.TestCase):
         summary = summarize_freshness_samples([{"freshness_seconds": 1.0}])
         self.assertEqual(summary["method"], "poll-proxy")
 
+    def test_freshness_summary_labels_sse_and_mixed_methods(self):
+        sse_summary = summarize_freshness_samples([
+            {"freshness_seconds": 1.0, "method": "sse"},
+        ])
+        mixed_summary = summarize_freshness_samples([
+            {"freshness_seconds": 1.0, "method": "sse"},
+            {"freshness_seconds": 2.0, "method": "poll-proxy"},
+        ])
+        self.assertEqual(sse_summary["method"], "sse")
+        self.assertEqual(mixed_summary["method"], "mixed")
+
     def test_jsonl_baseline_summary_handles_missing_kinds(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -150,6 +209,12 @@ class MeasurementSliTests(unittest.TestCase):
         self.assertIsNone(search["status_code"])
         self.assertEqual(search["error"], "Timeout")
 
+    def test_search_probe_uses_short_timeout(self):
+        session = Mock()
+        session.get.side_effect = requests.Timeout("search timeout")
+        _run_search_probe(session, "bosch.fleet:vehicle-01", api_base="http://local/api/2", run_id="run-timeout")
+        self.assertEqual(session.get.call_args.kwargs["timeout"], 3)
+
     def test_failed_freshness_probe_records_failure_sample(self):
         session = Mock()
         session.get.side_effect = requests.ConnectionError("gateway down")
@@ -188,3 +253,126 @@ class MeasurementSliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class M2BaselineAndFreshnessTests(unittest.TestCase):
+    """Review fixes for PR #8: arrival-time freshness, concurrent probes, run-scoped 120 s baselines."""
+
+    def _write_run(self, base, run_id, start, seconds, step=10.0, success=True):
+        from datetime import timedelta
+        t = 0.0
+        while t <= seconds:
+            ts = (start + timedelta(seconds=t)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            common = {"source": "live", "run_id": run_id, "timestamp": ts}
+            append_jsonl(base / "write.jsonl", {"kind": "write", "success": success, "latency_ms": 20.0, **common})
+            append_jsonl(base / "search.jsonl", {"kind": "search", "success": True, "latency_ms": 25.0, **common})
+            append_jsonl(base / "freshness.jsonl", {"kind": "freshness", "success": True, "method": "sse", "freshness_seconds": 0.05, **common})
+            t += step
+
+    def test_sse_freshness_is_measured_when_the_event_arrives(self):
+        from datetime import timedelta
+        from monitor.sse import arrival_record
+        written = datetime(2026, 10, 10, 13, 0, 0, tzinfo=timezone.utc)
+        record = arrival_record("bosch.fleet:vehicle-01", "2026-10-10T13:00:00Z", received_at=written + timedelta(milliseconds=80))
+        self.assertTrue(record["success"])
+        self.assertAlmostEqual(record["freshness_seconds"], 0.08, places=3)
+        self.assertFalse(arrival_record("v", "not-a-time")["success"])
+
+    def test_failed_freshness_reads_do_not_inflate_the_percentile(self):
+        summary = summarize_freshness_samples([
+            {"success": True, "freshness_seconds": 1.0},
+            {"success": False, "observed_at": "2026-10-10T10:00:00Z", "error": "ReadTimeout"},
+        ], now=datetime(2026, 10, 10, 14, 0, tzinfo=timezone.utc))
+        self.assertEqual(summary["p95_seconds"], 1.0)
+
+    def test_baseline_uses_latest_run_only_and_needs_120_seconds(self):
+        from datetime import timedelta
+        from monitor.window import baseline_from_metrics
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._write_run(base, "run-old", now - timedelta(hours=2), 300, success=False)  # unhealthy, old
+            self._write_run(base, "run-new", now - timedelta(seconds=90), 55)               # healthy but too short (ends now-35 s)
+            short = baseline_from_metrics(base)
+            self._write_run(base, "run-long", now - timedelta(seconds=150), 145)            # healthy, 145 s
+            long = baseline_from_metrics(base)
+        self.assertEqual(short["status"], "unavailable")
+        self.assertEqual(short["run_id"], "run-new")
+        self.assertTrue(any("120" in warning for warning in short["warnings"]))
+        self.assertEqual(long["status"], "available", long["warnings"])
+        self.assertEqual(long["run_id"], "run-long")
+        self.assertEqual(long["telemetry"]["write"]["error_rate"], 0.0, "the failing old run must not leak in")
+
+    def test_capture_baseline_works_with_saved_baseline_files_present(self):
+        import sys
+        from datetime import timedelta
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+        from app.store import LocalRepository
+        from monitor.window import baseline_from_metrics
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metrics = root / "metrics"
+            metrics.mkdir()
+            (root / "baselines").mkdir()
+            (root / "baselines" / "baseline-run-x.json").write_text('{"status": "healthy", "summary": {}}', encoding="utf-8")
+            self._write_run(metrics, "run-live", now - timedelta(seconds=130), 125)
+            stored = LocalRepository(root / "db.sqlite3").save_baseline("graph-1", baseline_from_metrics(metrics))
+        self.assertEqual(stored["telemetry_status"], "available")
+
+    def test_hung_search_does_not_stall_writes(self):
+        import time as real_time
+        from simulator import fleet_workload
+
+        class FakeSession:
+            def __init__(self):
+                self.auth = None
+
+            def put(self, url, **kwargs):
+                return Mock(status_code=204, json=lambda: {}, text="")
+
+            def get(self, url, **kwargs):
+                if "/search/" in url:
+                    real_time.sleep(1.0)  # a hung search, shorter than the 3 s timeout
+                return Mock(status_code=200, json=lambda: {"items": [1]} if "/search/" in url else "2026-10-10T13:00:00Z", text="")
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(fleet_workload.requests, "Session", FakeSession):
+            fleet_workload.run_fleet_workload(
+                base_url="http://local", vehicles=2, duration_seconds=2.5, rate_per_second=20.0,
+                metrics_dir=directory, capture_containers=False, freshness_method="poll-proxy",
+            )
+            writes = len(Path(directory, "write.jsonl").read_text(encoding="utf-8").splitlines())
+            searches = len(Path(directory, "search.jsonl").read_text(encoding="utf-8").splitlines())
+        self.assertGreaterEqual(writes, 4 * searches, f"writes={writes} searches={searches}: writes must not wait for search")
+        self.assertEqual(fleet_workload.SEARCH_TIMEOUT_S, 3.0)
+
+
+class SseDeliveryTests(unittest.TestCase):
+    def test_subscriber_reads_events_unbuffered_and_reports_arrival_staleness(self):
+        events = []
+        line = 'data: {"thingId":"bosch.fleet:vehicle-01","features":{"telemetry":{"properties":{"last_seen":"%s"}}}}'
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        calls = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def raise_for_status(self):
+                return None
+
+            def iter_lines(self, chunk_size=512, decode_unicode=False):
+                calls["chunk_size"] = chunk_size
+                subscriber._stop.set()
+                return iter([line % now, ""])
+
+        subscriber = FreshnessSseSubscriber("http://local/api/2", ["bosch.fleet:vehicle-01"], ("ditto", "ditto"), on_event=events.append)
+        with patch("monitor.sse.requests.get", return_value=Response()):
+            subscriber._consume()
+        self.assertEqual(calls["chunk_size"], 1, "SSE must not be read in buffered chunks")
+        self.assertEqual(len(events), 1)
+        self.assertTrue(events[0]["success"])
+        self.assertLess(events[0]["freshness_seconds"], 5)

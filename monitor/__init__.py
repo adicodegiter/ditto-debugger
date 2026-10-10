@@ -11,6 +11,8 @@ from .sli import (
     utc_timestamp,
 )
 from .window import baseline_from_metrics, window_stats
+from .container import capture_container_metrics
+from .sse import FreshnessSseSubscriber, parse_sse_events
 
 __all__ = [
     "REQUIRED_KINDS",
@@ -20,6 +22,9 @@ __all__ = [
     "load_thresholds",
     "window_stats",
     "baseline_from_metrics",
+    "capture_container_metrics",
+    "FreshnessSseSubscriber",
+    "parse_sse_events",
     "summarize_metrics",
     "summarize_write_samples",
     "summarize_search_samples",

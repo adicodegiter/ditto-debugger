@@ -133,6 +133,10 @@ def summarize_freshness_samples(samples: list[dict[str, Any]], now: datetime | N
         if isinstance(recorded_freshness, (int, float)) and math.isfinite(float(recorded_freshness)):
             freshness_values.append(max(0.0, float(recorded_freshness)))
             continue
+        if item.get("success") is False:
+            # A failed read has no measured staleness. Computing "now - observed_at" here
+            # would grow with the time the summary runs (it reported 255 s for a 10 s max).
+            continue
         observed_at = item.get("observed_at") or item.get("telemetry_timestamp")
         if not observed_at:
             continue
@@ -147,13 +151,15 @@ def summarize_freshness_samples(samples: list[dict[str, Any]], now: datetime | N
     status = "healthy" if freshness_values and (summary["p95"] is None or summary["p95"] <= limits["freshness_p95_seconds_max"]) else "degraded"
     if samples and not freshness_values:
         status = "unknown"
+    methods = {str(item.get("method")) for item in samples if item.get("method")}
+    method = next(iter(methods)) if len(methods) == 1 else ("mixed" if methods else "poll-proxy")
     return {
         "kind": "freshness",
         "samples": len(freshness_values),
         "p95_seconds": summary["p95"],
         "p50_seconds": summary["p50"],
         "mean_seconds": summary["mean"],
-        "method": "poll-proxy",
+        "method": method,
         "status": status,
     }
 

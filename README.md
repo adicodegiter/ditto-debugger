@@ -94,12 +94,21 @@ python simulator/smoke_test.py           # policy -> thing -> update -> read bac
 For the bounded fleet workload and baseline metrics used by the Workload & Measurement role, run:
 
 ```bash
-python simulator/fleet_workload.py --duration-seconds 30 --metrics-dir data/metrics
+python simulator/fleet_workload.py --duration-seconds 120 --metrics-dir data/metrics
 python -m monitor.cli --metrics-dir data/metrics
 ```
 
-The workload records JSON Lines in `data/metrics/*.jsonl` for the write, search, and freshness SLIs; the monitor CLI summarizes success rate, latency percentiles, and freshness windows without inventing missing data.
-The control plane reads these live client-side samples for its last 30-second observation window, so Prometheus is optional for experiment detection. Missing any required SLI fails closed. During an approved experiment it samples every two seconds, restores the target, polls `/health` and a functional canary for up to 60 seconds, and stores deterministic findings at `/api/v1/findings`.
+The workload records JSON Lines in `data/metrics/*.jsonl`:
+- **Concurrent probes:** write, search and freshness each run in their own thread with their own HTTP session, so a hung probe can't stall the others. Timeouts are 5 s for writes and 3 s for search and freshness reads, so a down service shows up as fast failures.
+- **Freshness via SSE (default):** each telemetry change is timed when it arrives on Ditto's SSE stream (`received_at − last_seen`). `--freshness-method poll-proxy` falls back to reading values back, and those records are labelled as such.
+- **Extra files:** a local Docker resource snapshot goes to `container.jsonl`, and a per-run summary to `data/baselines/`.
+
+**Baselines** (`python -m safety.cli baseline` or `POST /api/v1/baselines`) are built from the **most recent live workload run only**, using at most its last 5 minutes. A baseline is refused, with the reason, if:
+- the run has less than **120 s** of samples
+- the run stopped writing more than 60 s ago
+- any SLI is unhealthy or missing
+
+The control plane reads the same live samples for its 30 s kill-switch window, so Prometheus is optional.
 
 - API: `http://127.0.0.1:8080/api/2/` (sample basic auth `ditto:ditto`, loopback only)
 - Ditto UI: `http://127.0.0.1:8080/ui/`
