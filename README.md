@@ -87,7 +87,7 @@ For the bounded fleet workload and baseline metrics used by the Workload & Measu
 
 ```bash
 python simulator/fleet_workload.py --duration-seconds 30 --metrics-dir data/metrics
-python monitor/cli.py --metrics-dir data/metrics --seed-demo
+python -m monitor.cli --metrics-dir data/metrics
 ```
 
 The workload records JSON Lines in `data/metrics/*.jsonl` for the write, search, and freshness SLIs; the monitor CLI summarizes success rate, latency percentiles, and freshness windows without inventing missing data.
