@@ -26,6 +26,12 @@
     "timeline": { "type": "object", "additionalProperties": { "type": "string", "format": "date-time" } },
     "watchdog": { "type": "object", "properties": { "armed": { "type": "boolean" }, "deadline": { "type": "string", "format": "date-time" } } },
     "error_detail": { "type": "string" },
-    "baseline_write_p95_ms": { "type": ["number", "null"] }
+    "baseline_write_p95_ms": { "type": ["number", "null"] },
+    "forced_test": { "type": "boolean" },
+    "forced_test_rule": { "type": "string" },
+    "forced_test_passed": { "type": "boolean" },
+    "dry_run": { "type": "boolean" },
+    "dry_run_commands": { "type": "array", "items": { "type": "string" } },
+    "findings": { "type": "array", "items": { "type": "object" } }
   }
 }

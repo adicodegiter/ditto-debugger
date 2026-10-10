@@ -452,6 +452,78 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(ExperimentRunner.candidate_hash(prepared), approval["candidate_hash"])
         self.assertNotIn("approval", prepared)
 
+    # --- M4 forced kill-switch test ------------------------------------------------------
+    def test_forced_test_trips_the_real_kill_switch_then_recovers_with_normal_thresholds(self):
+        docker, watchdog = FakeDocker(), FakeWatchdog()
+        item = {**candidate(action="restart_container", duration=10), "predicted_slis": {"write": "hold", "search": "fail"}}
+        # Healthy, normal-looking samples throughout: only the lowered fault-phase limit can trip.
+        run = self.runner(docker, ScriptedObservations(HEALTHY), watchdog=watchdog).execute(
+            item, self.approval_for(item), self.baseline, forced_test=True
+        )
+        self.assertTrue(run["forced_test"])
+        self.assertTrue(run["forced_test_passed"])
+        self.assertEqual(run["status"], "aborted")
+        self.assertEqual(run["abort_reason"], "p95_latency_above_baseline_multiplier")
+        self.assertTrue(run["recovery_verified"], "recovery must use the normal thresholds")
+        self.assertEqual(docker.calls[-1], ("start", "things-search"))
+        self.assertEqual(watchdog.disarmed, 1)
+        self.assertEqual(run["resilience_score"]["status"], "not_scored_forced_test")
+        self.assertEqual(run["prediction"]["predicted_slis"], {"write": "hold", "search": "fail"})
+
+    def test_forced_test_only_passes_when_the_lowered_limit_fires(self):
+        # Samples disappear during the fault: the run aborts, but for missing samples,
+        # which does not prove the threshold path.
+        missing = {**HEALTHY, "write_samples": 0}
+        item = candidate(action="restart_container", duration=10)
+        run = self.runner(FakeDocker(), ScriptedObservations(HEALTHY, missing, HEALTHY)).execute(
+            item, self.approval_for(item), self.baseline, forced_test=True
+        )
+        self.assertEqual(run["status"], "aborted")
+        self.assertEqual(run["abort_reason"], "missing_samples")
+        self.assertFalse(run["forced_test_passed"])
+
+    def test_cli_approval_cannot_be_scripted(self):
+        import io
+        from unittest import mock
+        from safety import cli
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {"DATABASE_PATH": str(root / "db.sqlite3"), "DITTO_COMPOSE_FILE": str(root / "missing.yml")}
+            with mock.patch.dict("os.environ", env):
+                orchestrator = cli._orchestrator()
+                baseline = orchestrator.repository.save_baseline("graph-1", {"status": "available"})
+                item = {**candidate(), "evidence_refs": [f"baseline:{baseline['baseline_id']}"]}
+                orchestrator.repository.save_plan({"plan_id": "plan-cli", "candidates": [item]})
+                with self.assertRaises(SystemExit):
+                    cli.main(["approve", item["id"], "--by", "script", "--reason", "x", "--yes"])
+                piped = io.StringIO("APPROVE\n")
+                with mock.patch("sys.stdin", piped), mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+                    code = cli.main(["approve", item["id"], "--by", "script", "--reason", "x"])
+                stored = cli._orchestrator().get_experiment(item["id"])
+        self.assertEqual(code, 2)
+        self.assertEqual(stored["approval_status"], "pending", "a piped APPROVE must not record an approval")
+
+    def test_failed_action_command_still_rolls_back(self):
+        class HalfFailingDocker(FakeDocker):
+            def apply(self, action, target):
+                super().apply(action, target)
+                raise DockerCommandError("restart failed after stopping the container")
+
+        docker = HalfFailingDocker()
+        item = candidate(action="restart_container", duration=4)
+        run = self.runner(docker, ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline)
+        self.assertEqual(run["status"], "failed")
+        self.assertEqual(docker.calls[-1], ("start", "things-search"), "cleanup must run even if the action command failed")
+        self.assertEqual(run["cleanup_state"], "complete")
+        self.assertLessEqual(run["timeline"]["injected_at"], run["timeline"]["rollback_at"])
+
+    def test_normal_run_is_not_marked_as_forced_test(self):
+        item = candidate(duration=4)
+        run = self.runner(FakeDocker(), ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline)
+        self.assertNotIn("forced_test", run)
+        self.assertEqual(run["status"], "completed")
+
     # --- integration with P3 baseline capture and findings ----------------------------
     def test_kill_switch_reads_write_p95_from_baseline_captured_from_sli_metrics(self):
         from monitor.sli import append_jsonl
