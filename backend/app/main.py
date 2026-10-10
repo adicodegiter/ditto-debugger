@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import workbench_views as views
 from .orchestrator import AgentOrchestrator
 from .settings import REPOSITORY_ROOT, Settings
 from safety.runner import RunnerError
@@ -133,6 +134,33 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     @application.get("/api/v1/audit")
     def list_audit(limit: int = Query(default=100, ge=1, le=500)) -> dict[str, Any]:
         return {"events": application.state.orchestrator.list_audit(limit)}
+
+    # ---- read-only dashboard views (local files only; nothing executes) ----
+    @application.get("/api/v1/slis")
+    def current_slis(window: float = Query(default=30.0, ge=5, le=600)) -> dict[str, Any]:
+        return views.sli_window(application.state.orchestrator.settings.metrics_dir, window)
+
+    @application.get("/api/v1/slis/series")
+    def sli_series(minutes: float = Query(default=5.0, ge=1, le=60), bucket: float = Query(default=10.0, ge=2, le=300)) -> dict[str, Any]:
+        return views.sli_series(application.state.orchestrator.settings.metrics_dir, minutes, bucket)
+
+    @application.get("/api/v1/baselines")
+    def list_baselines(limit: int = Query(default=20, ge=1, le=200)) -> dict[str, Any]:
+        stored = application.state.orchestrator.repository.list_baselines(limit)
+        return {"baselines": [views.baseline_view(item) for item in stored]}
+
+    @application.get("/api/v1/policy")
+    def policy() -> dict[str, Any]:
+        settings = application.state.orchestrator.settings
+        return views.policy_summary(settings.policy_path, settings.execution_enabled)
+
+    @application.get("/api/v1/dependency-map")
+    def dependency_map() -> dict[str, Any]:
+        return views.dependency_map(REPOSITORY_ROOT / "ai" / "dependency_map.json")
+
+    @application.get("/api/v1/watchdog")
+    def watchdog(limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:
+        return {"events": views.watchdog_log(REPOSITORY_ROOT / "data" / "experiments" / "watchdog.jsonl", limit)}
 
     @application.post("/api/v1/experiments/{experiment_id}/execute")
     def execute_experiment(experiment_id: str) -> dict[str, Any]:
