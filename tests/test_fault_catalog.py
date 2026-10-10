@@ -136,6 +136,7 @@ class FaultRecipeTests(unittest.TestCase):
         argv = recorder.popen_args
         self.assertIn("fleet_workload.py", argv[1])
         self.assertEqual(argv[argv.index("--duration-seconds") + 1], "30", "the burst ends by itself")
+        self.assertEqual(argv[argv.index("--vehicle-offset") + 1], "100", "burst twins never overlap the measured fleet")
         self.assertIn("metrics-burst", argv[argv.index("--metrics-dir") + 1], "burst samples never mix with SLI samples")
         docker.rollback("traffic_burst", "nginx")
         self.assertTrue(recorder.proc.terminated)

@@ -5,6 +5,14 @@ from typing import Any
 
 def generate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
     """Generate deterministic, evidence-linked findings without an external model."""
+    diagnosis = run.get("diagnosis") or {}
+    if (
+        run.get("dry_run") is True
+        or run.get("forced_test") is True
+        or diagnosis.get("kill_switch", {}).get("forced_test") is True
+        or diagnosis.get("evidence_use") in {"dry_run", "kill_switch_test"}
+    ):
+        return []
     run_id = str(run["run_id"])
     observations = run.get("observations", [])
     evidence = [f"run:{run_id}"]
@@ -13,9 +21,13 @@ def generate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
     if run.get("recovery"):
         evidence.append(f"recovery:{run['recovery'].get('target', 'target')}")
     findings: list[dict[str, Any]] = []
+    # Real runner windows use write_error_rate / search_error_rate; older records use error_rate.
+    error_keys = ("error_rate", "write_error_rate", "search_error_rate")
+    # Real windows carry a phase; only fault-phase windows count. Older records have no phase.
     failed_samples = sum(
         1 for observation in observations
-        if float(observation.get("error_rate", 0) or 0) > 0
+        if (observation.get("phase", "fault") == "fault"
+            and any(float(observation.get(key, 0) or 0) > 0 for key in error_keys))
         or observation.get("telemetry_available") is False
     )
     if failed_samples:
@@ -42,7 +54,6 @@ def generate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
             "confidence": 0.99,
             "ai_generated": False,
         })
-    diagnosis = run.get("diagnosis") or {}
     if diagnosis.get("evidence_use") == "experiment":
         worse = {sli: v for sli, v in diagnosis.get("comparison", {}).items() if v.get("verdict") == "worse_than_predicted"}
         better = {sli: v for sli, v in diagnosis.get("comparison", {}).items() if v.get("verdict") == "better_than_predicted"}
@@ -59,11 +70,13 @@ def generate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
                 "ai_generated": False,
             })
         elif better:
+            kill_switch_trip = bool(diagnosis.get("kill_switch", {}).get("tripped")) or bool(run.get("abort_reason"))
+            severity = "high" if kill_switch_trip else "info"
             findings.append({
                 "schema_version": "1.0",
                 "id": f"{run_id}-better-than-predicted",
                 "run_id": run_id,
-                "severity": "info",
+                "severity": severity,
                 "summary": "The system absorbed more than predicted on: " + ", ".join(f"{sli} (predicted {v['predicted']}, observed {v['observed']})" for sli, v in better.items()) + ".",
                 "evidence": evidence + [f"diagnosis:{diagnosis.get('diagnosis_id')}"],
                 "recommendation": "Update the planner's effect model, or check that the measurement window captured the full outage.",

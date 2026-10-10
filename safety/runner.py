@@ -11,7 +11,7 @@ from typing import Any, Callable, Protocol
 
 from .kill_switch import KillSwitch, baseline_write_p95
 from .policy import Policy, SafetyViolation
-from .scoring import calculate_resilience_score
+from .scoring import calculate_resilience_score, derive_score_components
 
 
 class RunnerError(RuntimeError):
@@ -91,6 +91,7 @@ class ExperimentRunner:
         baseline: dict[str, Any],
         *,
         forced_test: bool = False,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         self.policy.validate_candidate(candidate)
         self._validate_approval(candidate, approval)
@@ -110,6 +111,9 @@ class ExperimentRunner:
         finally:
             with self._lock:
                 self._active = False
+        if dry_run:
+            run["dry_run"] = True
+        run["score_components"] = derive_score_components(run, self.policy.recovery_timeout_seconds)
         run["resilience_score"] = calculate_resilience_score(run)
         return run
 

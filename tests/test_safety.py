@@ -26,7 +26,7 @@ from safety.observations import SliWindowObservationProvider, unrelated_services
 from safety.policy import AbortThresholds, Policy, SafetyViolation
 from safety.recovery import HttpRecoveryChecker
 from safety.runner import ExperimentRunner, RunnerError
-from safety.scoring import calculate_resilience_score
+from safety.scoring import calculate_resilience_score, derive_score_components
 from safety.watchdog import run_watchdog
 
 HEALTHY = {
@@ -240,6 +240,16 @@ class SafetyTests(unittest.TestCase):
         # Two failed checks x 3 s poll interval: recovery time counts from rollback, not from injection.
         self.assertAlmostEqual(run["recovery_time_seconds"], 2 * self.policy.recovery_poll_interval_seconds, places=3)
         self.assertGreater(len(run["observations"]), 3, "the kill switch must be polled during the fault")
+
+    def test_runner_dry_run_is_not_scored_but_real_run_is(self):
+        item = candidate(duration=10)
+        dry = self.runner(FakeDocker(), ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline, dry_run=True)
+        self.assertTrue(dry["dry_run"])
+        self.assertEqual(dry["score_components"], {})
+        self.assertEqual(dry["resilience_score"]["status"], "not_scored_dry_run")
+        real = self.runner(FakeDocker(), ScriptedObservations(HEALTHY)).execute(item, self.approval_for(item), self.baseline)
+        self.assertNotIn("dry_run", real)
+        self.assertTrue(real["score_components"])
 
     def test_recovery_requires_slis_back_within_thresholds(self):
         degraded = {**HEALTHY, "write_p95_ms": 500.0}
@@ -571,6 +581,42 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(incomplete["status"], "incomplete")
         self.assertIsNone(incomplete["score"])
         self.assertEqual(unsafe["status"], "unsafe")
+
+    def test_dry_run_is_never_scored(self):
+        result = calculate_resilience_score({"dry_run": True, "score_components": {"availability": 1.0}})
+        self.assertEqual(result["status"], "not_scored_dry_run")
+        self.assertIsNone(result["score"])
+
+    def test_search_outage_lowers_availability(self):
+        components = derive_score_components({
+            "status": "aborted",
+            "baseline_write_p95_ms": 50.0,
+            "abort_reason": "search_failure",
+            "observations": [{"phase": "fault", "write_error_rate": 0.0, "search_error_rate": 0.75, "write_p95_ms": 40.0}],
+        })
+        self.assertEqual(components["availability"], 0.25)
+
+    def test_latency_compares_write_p95_against_write_baseline_only(self):
+        components = derive_score_components({
+            "status": "completed",
+            "baseline_write_p95_ms": 16.0,
+            "observations": [{"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 16.0, "search_p95_ms": 50.0}],
+        })
+        self.assertEqual(components["latency"], 1.0)
+
+    def test_aborted_run_gets_detection_but_no_fabricated_recovery(self):
+        components = derive_score_components({
+            "status": "aborted",
+            "abort_reason": "error_rate_above_configured_limit",
+            "observations": [{"phase": "fault", "write_error_rate": 0.5}],
+        })
+        self.assertEqual(components["detection"], 0.5)
+        self.assertNotIn("recovery", components)
+
+    def test_run_without_fault_observations_is_incomplete(self):
+        run = {"status": "completed", "score_components": derive_score_components({"status": "completed", "observations": []})}
+        result = calculate_resilience_score(run)
+        self.assertEqual(result["status"], "incomplete")
 
     def test_non_finite_risk_and_score_values_are_rejected(self):
         unsafe = candidate()

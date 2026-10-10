@@ -33,8 +33,5 @@ findings readable during migration. The OpenAPI response should continue returni
 the same finding records and expose the additional optional fields through the
 versioned schema. Dashboard and export readers should consume that one contract.
 
-This repository scope does not include `schemas/`, `backend/app/main.py`, or the
-dashboard. The 1.1 schema and API/dashboard edits therefore remain a P2 proposal,
-not an implemented contract change. The current PR branch also does not contain
-P3's `ai/report.py`; integration must call the enrichment helper from that
-producer when the P3 change is present on the branch.
+Schema 1.1 and the API/dashboard fields are proposed for P2; ai/report.py creates findings and
+enrich_findings adds diagnosis data to them.

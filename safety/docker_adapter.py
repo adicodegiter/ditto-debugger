@@ -62,6 +62,7 @@ def burst_command(params: dict[str, Any]) -> list[str]:
         "--duration-seconds", str(duration),
         "--rate-per-second", str(float(params.get("rate_per_second", 10.0))),
         "--vehicles", str(int(params.get("vehicles", 16))),
+        "--vehicle-offset", "100",
         "--metrics-dir", str(BURST_METRICS_DIR),
         "--no-container-metrics",
         "--freshness-method", "poll-proxy",

@@ -131,6 +131,10 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
             raise HTTPException(status_code=404, detail="Run was not found.")
         return {"findings": application.state.orchestrator.list_findings(run_id)}
 
+    @application.get("/api/v1/findings/ranked")
+    def ranked_findings() -> dict[str, Any]:
+        return {"ranked": application.state.orchestrator.ranked_findings()}
+
     @application.get("/api/v1/audit")
     def list_audit(limit: int = Query(default=100, ge=1, le=500)) -> dict[str, Any]:
         return {"events": application.state.orchestrator.list_audit(limit)}

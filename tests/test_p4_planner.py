@@ -138,14 +138,17 @@ class P4PlannerTests(unittest.TestCase):
         self.assertIn("ditto_docs:architecture-overview", top["reason"])
         self.assertNotIn("configured dependent", top["reason"])
 
-    def test_default_policy_proposes_m4_things_search_stop_for_sixty_seconds(self):
+    def test_default_policy_proposes_m4_things_search_stop_at_policy_default_duration(self):
+        policy = yaml.safe_load(POLICY.read_text(encoding="utf-8"))
+        expected_duration = int(policy["actions"]["stop_container"]["duration_seconds_default"])
+
         result = self.plan()
         candidate = next(
             item for item in result["candidates"]
             if item["target_component"] == "things-search" and item["action"] == "stop_container"
         )
 
-        self.assertEqual(candidate["duration_seconds"], 60)
+        self.assertEqual(candidate["duration_seconds"], expected_duration)
         Draft202012Validator(SCHEMA).validate(candidate)
 
     def test_empty_impact_paths_name_missing_dependents_and_source(self):
