@@ -8,11 +8,46 @@ from unittest.mock import Mock
 
 import requests
 
-from monitor.sli import baseline_summary, load_thresholds, summarize_freshness_samples, summarize_metrics
+from ai.report import generate_findings
+from monitor.sli import append_jsonl, baseline_summary, load_thresholds, summarize_freshness_samples, summarize_metrics
+from monitor.window import window_stats
 from simulator.fleet_workload import _run_freshness_probe, _run_search_probe, _run_write_probe
 
 
 class MeasurementSliTests(unittest.TestCase):
+    def test_window_stats_counts_search_outage_as_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = datetime(2026, 10, 10, 13, 0, 30, tzinfo=timezone.utc)
+            timestamp = "2026-10-10T13:00:29.000Z"
+            for kind, success in (("write", True), ("search", False), ("freshness", True)):
+                record = {
+                    "kind": kind,
+                    "source": "live",
+                    "timestamp": timestamp,
+                    "success": success,
+                    "latency_ms": 20,
+                }
+                if kind == "freshness":
+                    record["freshness_seconds"] = 1
+                append_jsonl(Path(directory) / f"{kind}.jsonl", record)
+            stats = window_stats(directory, last_s=30, now=now)
+            self.assertEqual(stats["error_rate"], 1.0)
+            self.assertTrue(stats["telemetry_available"])
+            self.assertTrue(stats["baseline_healthy"])
+
+    def test_report_is_deterministic_and_evidence_linked(self):
+        run = {
+            "run_id": "run-test",
+            "observations": [{"error_rate": 0.5, "telemetry_available": True}],
+            "abort_reason": "error_rate_above_configured_limit",
+            "recovery_verified": False,
+            "recovery": {"target": "things-search"},
+        }
+        findings = generate_findings(run)
+        self.assertEqual(findings[0]["run_id"], "run-test")
+        self.assertTrue(findings[0]["evidence"])
+        self.assertIn("critical", {finding["severity"] for finding in findings})
+
     def test_measurement_summary_accepts_write_search_and_freshness_samples(self):
         records = [
             {"kind": "write", "success": True, "latency_ms": 120.0},

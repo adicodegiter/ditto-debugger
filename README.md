@@ -91,6 +91,7 @@ python -m monitor.cli --metrics-dir data/metrics
 ```
 
 The workload records JSON Lines in `data/metrics/*.jsonl` for the write, search, and freshness SLIs; the monitor CLI summarizes success rate, latency percentiles, and freshness windows without inventing missing data.
+The control plane reads these live client-side samples for its last 30-second observation window, so Prometheus is optional for experiment detection. Missing any required SLI fails closed. During an approved experiment it samples every two seconds, restores the target, polls `/health` and a functional canary for up to 60 seconds, and stores deterministic findings at `/api/v1/findings`.
 
 - API: `http://127.0.0.1:8080/api/2/` (sample basic auth `ditto:ditto`, loopback only)
 - Ditto UI: `http://127.0.0.1:8080/ui/`

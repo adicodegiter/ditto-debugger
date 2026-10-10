@@ -127,15 +127,18 @@ class ExperimentRunner:
             stopped = True
             run["cleanup_state"] = "required"
             self.audit("fault_started", {"run_id": run_id, "action": candidate["action"], "target": target})
-            self.sleep(candidate["duration_seconds"])
-            observation = self.observations.observe()
-            run["observations"].append(observation)
-            decision = KillSwitch(baseline, self.policy).evaluate(observation, self.clock() - started)
-            if decision.aborted:
-                run["status"] = "aborted"
-                run["abort_reason"] = decision.reason
-                self.audit("experiment_aborted", {"run_id": run_id, "reason": decision.reason})
-            else:
+            deadline = self.clock() + candidate["duration_seconds"]
+            while self.clock() < deadline:
+                self.sleep(min(2.0, max(0.0, deadline - self.clock())))
+                observation = self.observations.observe()
+                run["observations"].append(observation)
+                decision = KillSwitch(baseline, self.policy).evaluate(observation, self.clock() - started)
+                if decision.aborted:
+                    run["status"] = "aborted"
+                    run["abort_reason"] = decision.reason
+                    self.audit("experiment_aborted", {"run_id": run_id, "reason": decision.reason})
+                    break
+            if run["status"] == "running":
                 run["status"] = "recovering"
         except Exception as error:
             run["status"] = "failed"
@@ -152,13 +155,18 @@ class ExperimentRunner:
                 run["status"] = "failed"
                 run["error"] = type(error).__name__
                 self.audit("cleanup_failed", {"run_id": run_id, "error": type(error).__name__})
-        if run["status"] == "recovering":
+        if stopped and run["cleanup_state"] == "complete":
             try:
                 recovery = self.recovery.verify(target)
                 run["recovery"] = recovery
                 run["recovery_verified"] = bool(recovery.get("healthy") and recovery.get("canary"))
-                run["status"] = "completed" if run["recovery_verified"] else "failed"
-                run["recovery_time_seconds"] = max(0.0, self.clock() - started)
+                if run["recovery_verified"] and run["status"] == "recovering":
+                    run["status"] = "completed"
+                elif not run["recovery_verified"] and run["status"] == "recovering":
+                    run["status"] = "failed"
+                run["recovery_time_seconds"] = float(
+                    recovery.get("recovery_time_seconds", max(0.0, self.clock() - started))
+                )
                 self.audit("recovery_checked", {"run_id": run_id, "verified": run["recovery_verified"]})
             except Exception as error:
                 run["status"] = "failed"

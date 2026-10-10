@@ -38,8 +38,13 @@ class KillSwitch:
             return AbortDecision(True, "error_rate_above_configured_limit")
         baseline_p95 = observation.get("baseline_p95_latency")
         current_p95 = observation.get("p95_latency")
-        if baseline_p95 is not None and current_p95 is not None and float(current_p95) > 3 * float(baseline_p95):
+        p95_limit = observation.get("p95_latency_limit")
+        if baseline_p95 is not None and current_p95 is not None and (
+            float(current_p95) > float(p95_limit) if p95_limit is not None else float(current_p95) > 3 * float(baseline_p95)
+        ):
             return AbortDecision(True, "p95_latency_above_three_times_baseline")
-        if observation.get("freshness_p95_seconds") is not None and float(observation["freshness_p95_seconds"]) > 30:
+        if observation.get("freshness_p95_seconds") is not None and float(observation["freshness_p95_seconds"]) > float(
+            observation.get("freshness_p95_limit", 30)
+        ):
             return AbortDecision(True, "freshness_p95_above_30_seconds")
         return AbortDecision(False)
