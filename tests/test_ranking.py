@@ -111,13 +111,15 @@ class SharedRunRecordTests(unittest.TestCase):
         self.assertEqual(labels["run-c8b30b07c9f3"], ("restart_container", "things-search"))
         self.assertNotIn(("unknown", "unknown"), labels.values())
 
-    def test_unlabelled_record_stays_unknown_and_prefixes_match_the_planner(self):
+    def test_unlabelled_record_stays_unknown_and_both_id_formats_map_to_actions(self):
         from ai.ranking import _ID_PREFIX_ACTIONS, _target_and_action
-        from app.agents.planning import ACTION_PREFIX
+        from safety.policy import SUPPORTED_ACTIONS
 
-        self.assertEqual(_ID_PREFIX_ACTIONS, {prefix: action for action, prefix in ACTION_PREFIX.items()})
+        self.assertEqual(set(_ID_PREFIX_ACTIONS.values()), set(SUPPORTED_ACTIONS))
+        for experiment_id in ("restart-things-search-1", "restart_container-things-search-1"):
+            record = {"run_id": "r", "experiment_id": experiment_id, "recovery": {"target": "things-search"}}
+            self.assertEqual(_target_and_action(record), ("things-search", "restart_container"))
         self.assertEqual(_target_and_action({"run_id": "r", "experiment_id": "mystery-1"}), ("unknown", "unknown"))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 # Ditto AI Chaos Engineering
 
-An AI-assisted resilience workbench for a deliberately isolated Eclipse Ditto deployment. The initial implementation has four coordinated specialists for deployment discovery, graph mapping, telemetry, and deterministic experiment planning, plus a loopback FastAPI and dashboard. It refuses to fabricate a Ditto topology when no manifest exists. Fault execution is deliberately disabled until Docker-backed approval, rollback, and recovery checks are implemented and verified.
+AI-driven chaos engineering for a connected-vehicle digital-twin backend, built on Eclipse Ditto (a Bosch-originated platform). Three agents map a locally running Ditto deployment from its manifests (Agent 1), measure its healthy behaviour under a simulated vehicle fleet (Agent 2), and rank safe failure experiments with per-SLI predictions (Agent 3). A deterministic control plane runs only a human-approved, immutable plan, with a kill switch, max duration, rollback and recovery check, and the results become evidence-linked findings with a resilience score. Agents never execute anything; the API's execute endpoint always returns 503, and only the operator CLI changes a container.
 
 ## Why Ditto
 
@@ -48,7 +48,7 @@ The upstream Ditto module paths and the custom workbench code map are in [Ditto 
   `--dry-run` reads real state and SLIs but changes no container. See [docs/safety-model.md](docs/safety-model.md).
 - **M1 dependency map:** [docs/dependency-map.md](docs/dependency-map.md) (Mermaid) and `ai/dependency_map.json`, generated from the pinned compose file by `python -m ai.dependency_map`. Every edge is labelled configured, documented or manual, and every Ditto node lists the SLIs it can affect.
 - **M4 done on 2026-10-10:** a real `things-search` restart completed, with recovery verified 4.2 s after rollback. A forced kill-switch test aborted 2.5 s into the fault and rolled back 0.5 s later. See [docs/m4-results.md](docs/m4-results.md); to repeat it, follow [docs/m4-runbook.md](docs/m4-runbook.md).
-- **Day 2 (M5, M6) in progress:** three fault types (restart, pause, traffic burst; plus a bounded MongoDB CPU throttle), predicted vs observed analysis, ranked findings, resilience score and the deliverables. Tasks, owners and the critical path are in [docs/day2-plan.md](docs/day2-plan.md).
+- **Day 2 (M5) done on 2026-10-10/11:** restart, pause and traffic-burst experiments ran live with fresh baselines, dry runs and typed approvals, and every one recovered. Predicted vs observed per SLI, ranked findings and the resilience score come from the run records ([docs/m5-results.md](docs/m5-results.md)). The 5.7 re-run showed the 3 s search timeout cuts a failing search from 10.0 s to 3.0 s. Remaining M6 work (findings report, video, submission) is tracked in [docs/day2-plan.md](docs/day2-plan.md).
 - Team repository: https://github.com/adicodegiter/ditto-debugger
 
 ## Prerequisites
@@ -197,23 +197,52 @@ The dashboard never executes a fault. Experiments run only from the operator CLI
 
 More detail is in [the demo runbook](docs/hackathon-demo.md) and [the safety model](docs/safety-model.md).
 
-## Day 2: three experiments, findings and score
+## End to end: from a fresh clone to ranked findings
 
-Run each fault type once on the live stack (restart is already recorded in [docs/m4-results.md](docs/m4-results.md)). For every run:
+Run everything from the repository root (Git Bash or WSL2 on Windows). Each step says what "good" looks like.
 
-1. `bash deploy/health_check.sh` (exit 0) and keep the workload running in its own terminal:
-   `python simulator/fleet_workload.py --duration-seconds 1200 --metrics-dir data/metrics`.
-2. Fresh baseline: `python -m safety.cli baseline` (refused with a reason if under 120 s or any SLI is unhealthy).
-3. Plan: `python -m safety.cli plan <baseline_id>`. Each candidate shows its action (`restart_container`, `pause_container`, `cpu_throttle`, `traffic_burst`), target, hypothesis and per-SLI prediction.
-4. Approve (a human types it): `python -m safety.cli approve <experiment_id> --by "<name>" --reason "<why>"`.
-5. Rehearse, then execute:
+1. **Install and test.** `python -m pip install -r requirements-dev.txt`, then
+   `python -m unittest discover -s tests` (all OK).
+2. **Start the target.** `docker compose --env-file deploy/image-pins.env -f deploy/ditto/docker-compose.yml up -d`,
+   then `bash deploy/health_check.sh --wait 300` (OVERALL: HEALTHY) and `python simulator/smoke_test.py` (5/5 PASS).
+3. **Start the workload** in its own terminal and leave it running for the whole session:
+   `python simulator/fleet_workload.py --duration-seconds 1800 --metrics-dir data/metrics`.
+   Wait **at least 120 s** before the next step.
+4. **Optional: dashboard.** `python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000`, then open
+   http://127.0.0.1:8000.
+5. **Baseline:** `python -m safety.cli baseline`. It is refused, with the reason, if the run has under 120 s of
+   samples or any SLI is unhealthy. After a fault, wait about 5 minutes before the next baseline so the fault is
+   outside its 5-minute window.
+6. **Plan:** `python -m safety.cli plan <baseline_id>`. Each candidate shows its action (`restart_container`,
+   `stop_container`, `pause_container`, `cpu_throttle`, `traffic_burst`), target, duration, hypothesis and per-SLI prediction.
+7. **Approve (a human types `APPROVE`):** `python -m safety.cli approve <experiment_id> --by "<name>" --reason "<why>"`.
+   The approval is bound to that candidate, expires after 10 minutes and works for one real run.
+8. **Rehearse, then run:**
    ```bash
    python -m safety.cli execute <experiment_id> --dry-run
    CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute <experiment_id>
    ```
-6. The run record lands in `data/experiments/` with recovery verified or an abort reason. Diagnosis compares predicted and observed SLIs; findings and the resilience score are built only from these records.
+   The dry run changes no container and prints the exact commands. The real run arms the watchdog, polls the kill
+   switch every 2 s, rolls back, and checks recovery.
+9. **Results:** the run record is saved to `data/experiments/<run_id>.json` with its diagnosis (predicted vs observed),
+   findings and resilience score (`score_components`, `score_inputs`). Rank findings across runs with
+   `python -m ai.ranking --markdown --run-file <run file> [--run-file ...]`.
 
-The findings report will be in `docs/findings-report.md` and the one-page architecture in `docs/architecture.md` (both Day 2 deliverables). Forced kill-switch tests (`--forced-test`) are labelled and never scored.
+Where the data goes (all git-ignored, created on the machine that runs the stack):
+
+| Folder | Written by |
+|---|---|
+| `data/metrics/` | the fleet workload: `write`, `search`, `freshness`, `container` JSON Lines |
+| `data/metrics-burst/` | a `traffic_burst` experiment's own bounded workload |
+| `data/baselines/` | `safety.cli baseline` |
+| `data/experiments/` | `safety.cli execute`: one record per run (`-dry-run` / `-forced-test` suffixes), plus `watchdog.jsonl` |
+
+**Recorded results.** The official runs on the Windows host are copied to
+[docs/evidence/windows-host/](docs/evidence/windows-host/README.md) and summarized in
+[docs/m4-results.md](docs/m4-results.md) and [docs/m5-results.md](docs/m5-results.md): `things-search` restart and
+pause, a traffic burst through nginx, and the 5.7 remediation re-run. Forced kill-switch tests (`--forced-test`) are
+labelled and never scored. Deliverables: [architecture](docs/architecture.md), findings report
+(`docs/findings-report.md`, in progress), demo video (link to follow).
 
 ## Optional: Groq for finding text (Agent 3)
 

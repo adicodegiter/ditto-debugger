@@ -51,9 +51,9 @@ def _validation_test(target: str, action: str, run: dict[str, Any]) -> str:
     )
 
 
-# Planner experiment ids start with a fixed per-action prefix: the inverse of
-# backend/app/agents/planning.py ACTION_PREFIX (kept local so --run-file needs no backend;
-# tests/test_ranking.py checks they match).
+# Planner experiment ids start with the action: a short prefix (`restart-things-search-…`, the
+# records up to PR #17) or the full action name (`restart_container-things-search-…`, PR #17 on).
+# Kept local so --run-file needs no backend; tests/test_ranking.py checks it against safety.policy.
 _ID_PREFIX_ACTIONS = {
     "restart": "restart_container",
     "stop": "stop_container",
@@ -61,6 +61,7 @@ _ID_PREFIX_ACTIONS = {
     "throttle": "cpu_throttle",
     "burst": "traffic_burst",
 }
+_ID_PREFIX_ACTIONS.update({action: action for action in list(_ID_PREFIX_ACTIONS.values())})
 
 
 def _target_and_action(run: dict[str, Any]) -> tuple[str, str]:
