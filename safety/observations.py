@@ -140,7 +140,10 @@ class SliWindowObservationProvider:
             unrelated = unrelated_services_healthy(self.services.service_states(), target)
         except Exception:  # noqa: BLE001 - an unreadable state is unhealthy, never healthy
             unrelated = False
+        rates = [rate for rate in (summary["write_error_rate"], summary["search_error_rate"]) if rate is not None]
         summary.update({
+            # Informational only (read by ai/report.py); the kill switch uses write_error_rate.
+            "error_rate": max(rates) if rates else None,
             "source": "sli_jsonl",
             "freshness_method": "poll-proxy",
             "window_start": datetime.fromtimestamp(start, timezone.utc).isoformat(),

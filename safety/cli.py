@@ -45,7 +45,7 @@ def build_runner(settings: Settings, orchestrator: AgentOrchestrator, dry_run: b
     real = SubprocessDockerAdapter(policy.compose_project, settings.compose_file, settings.image_pins_file)
     docker = DryRunDockerAdapter(real) if dry_run else real
     observations = SliWindowObservationProvider(settings.metrics_dir, real, policy.thresholds.window_seconds)
-    recovery = HttpRecoveryChecker(settings.ditto_base_url, settings.ditto_user, settings.ditto_password)
+    recovery = HttpRecoveryChecker(settings.ditto_base_url, settings.ditto_username, settings.ditto_password)
     watchdog = NoopWatchdog() if dry_run else ProcessWatchdog(settings.policy_path, settings.compose_file, settings.image_pins_file)
     runner = ExperimentRunner(
         policy,
@@ -77,7 +77,7 @@ def cmd_execute(args: argparse.Namespace) -> int:
         run["dry_run"] = True
         run["dry_run_commands"] = [" ".join(command) for command in docker.commands]
     else:
-        orchestrator.record_run(run)
+        run["findings"] = orchestrator.record_operator_run(run)
     print(json.dumps(run, indent=2, sort_keys=True))
     return 0 if run["status"] == "completed" else 1
 

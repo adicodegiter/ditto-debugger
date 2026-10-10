@@ -34,10 +34,26 @@ def _finite(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _dig(record: Any, *keys: str) -> Any:
+    for key in keys:
+        if not isinstance(record, dict):
+            return None
+        record = record.get(key)
+    return record
+
+
 def baseline_write_p95(baseline: dict[str, Any]) -> float | None:
-    sli = baseline.get("sli") if isinstance(baseline, dict) else None
-    value = _finite((sli or {}).get("write_p95_ms"))
-    return value if value is not None and value > 0 else None
+    """Write p95 (ms) of a stored baseline.
+
+    Accepts the runner's own shape (``sli.write_p95_ms``) and the shape stored by
+    ``capture_baseline`` from ``monitor.window.baseline_from_metrics``
+    (``telemetry.telemetry.write.latency_ms.p95``).
+    """
+    for path in (("sli", "write_p95_ms"), ("telemetry", "telemetry", "write", "latency_ms", "p95"), ("telemetry", "write", "latency_ms", "p95")):
+        value = _finite(_dig(baseline, *path))
+        if value is not None and value > 0:
+            return value
+    return None
 
 
 class KillSwitch:

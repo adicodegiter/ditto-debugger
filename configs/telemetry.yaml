@@ -24,6 +24,12 @@ collection:
     - jvm_gc_seconds
     - jvm_memory_bytes
     - jvm_threads
+thresholds:
+  write_error_rate_max: 0.20
+  write_p95_multiplier: 3.0
+  search_error_rate_max: 0.20
+  search_p95_ms_max: 5000
+  freshness_p95_seconds_max: 30
 limitations:
   - The default upstream Compose file does not publish per-service metrics ports to the host.
   - Add loopback-only port mappings in a local Compose override before enabling these targets.

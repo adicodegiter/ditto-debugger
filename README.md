@@ -89,6 +89,16 @@ python simulator/smoke_test.py           # policy -> thing -> update -> read bac
 | `bash deploy/reset.sh --wipe-data` | Also deletes the MongoDB volume (asks for confirmation) |
 | `python simulator/smoke_test.py` | 5-step end-to-end API check, exit 0 = all PASS (`--help` for options) |
 
+For the bounded fleet workload and baseline metrics used by the Workload & Measurement role, run:
+
+```bash
+python simulator/fleet_workload.py --duration-seconds 30 --metrics-dir data/metrics
+python -m monitor.cli --metrics-dir data/metrics
+```
+
+The workload records JSON Lines in `data/metrics/*.jsonl` for the write, search, and freshness SLIs; the monitor CLI summarizes success rate, latency percentiles, and freshness windows without inventing missing data.
+The control plane reads these live client-side samples for its last 30-second observation window, so Prometheus is optional for experiment detection. Missing any required SLI fails closed. During an approved experiment it samples every two seconds, restores the target, polls `/health` and a functional canary for up to 60 seconds, and stores deterministic findings at `/api/v1/findings`.
+
 - API: `http://127.0.0.1:8080/api/2/` (sample basic auth `ditto:ditto`, loopback only)
 - Ditto UI: `http://127.0.0.1:8080/ui/`
 - No Swagger UI. Upstream's `swagger-ui` service and `/apidoc` route were removed because they aren't needed. For
@@ -125,15 +135,24 @@ Open `http://127.0.0.1:8000`. Discovery reads `deploy/ditto/docker-compose.yml` 
 
 See [deployment instructions](docs/deployment.md) for version and telemetry caveats.
 
-## Demo Workflow (Planned)
+## Demo Workflow
 
-1. Start the pinned local Ditto stack and a low, bounded workload.
-2. Capture a healthy baseline and build a confidence-labelled graph from the checked-out Compose file and official architecture facts.
-3. Ask the planner for a candidate; show its target, hypothesis, graph evidence, predicted impact, uncertainty, and risk.
-4. Require a named human approval. Execute only the allow-listed short container restart in the local Compose project.
-5. Verify `/alive` and a functional Ditto canary, compare telemetry with the baseline, and produce an evidence-linked finding and score.
+1. **Start the target and the workload.** Bring up the pinned Ditto stack (see Local Setup), then run the bounded fleet workload. Keep it running in its own terminal for the whole demo:
+   ```bash
+   python simulator/fleet_workload.py --duration-seconds 900 --metrics-dir data/metrics
+   ```
+2. **Capture a baseline.** With the API running (`python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000`), call `POST /api/v1/discovery/refresh`, then `POST /api/v1/baselines`. The baseline is built from the live SLI samples in `data/metrics/` and is refused unless every SLI is healthy.
+3. **Plan and approve.** Call `POST /api/v1/experiments/plan` for ranked candidates (target, hypothesis, graph evidence, predicted impact, risk). Then a human records a decision with `POST /api/v1/experiments/{id}/approval`, using the candidate hash.
+4. **Rehearse, then execute from the operator process.** The API never executes; its `/execute` endpoint returns 503.
+   ```bash
+   python -m safety.cli execute <experiment_id> --dry-run
+   CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute <experiment_id>
+   ```
+   - The dry run changes no container and does not use up the approval.
+   - Before a real run, the runner checks steady state and arms the independent watchdog. During the fault it polls the kill switch every 2 s and rolls back on the first breach.
+5. **Recovery and findings.** After rollback, the runner checks `/health`, an authenticated canary, and the SLIs since rollback. It saves the run together with deterministic, evidence-linked findings (`GET /api/v1/runs`, `GET /api/v1/findings`).
 
-The planned flow is detailed in [the demo runbook](docs/hackathon-demo.md). Until the runner exists, do not interpret the configuration examples as executable fault injection.
+More detail is in [the demo runbook](docs/hackathon-demo.md) and [the safety model](docs/safety-model.md).
 
 ## Team Workflow
 

@@ -40,9 +40,13 @@ COMPOSE=(docker compose --env-file "$SCRIPT_DIR/image-pins.env" -f "$SCRIPT_DIR/
 # Load repo-root .env if present (does not override variables already set).
 if [[ -f "$REPO_ROOT/.env" ]]; then
   while IFS='=' read -r k v; do
+    k="${k#$'\ufeff'}"
+    k="${k%$'\r'}"
     [[ -z "$k" || "$k" =~ ^# ]] && continue
     v="${v%$'\r'}"
-    [[ -z "${!k:-}" ]] && export "$k=$v"
+    if [[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && [[ -z "${!k:-}" ]]; then
+      export "$k=$v"
+    fi
   done < "$REPO_ROOT/.env"
 fi
 DITTO_BASE_URL="${DITTO_BASE_URL:-http://127.0.0.1:8080}"
@@ -60,6 +64,7 @@ check_once() {
 
   [[ $QUIET -eq 0 ]] && printf '%-24s %-10s %-10s %s\n' CONTAINER STATE HEALTH RESULT
   while read -r name state health; do
+    health="${health%$'\r'}"
     local result=OK
     if [[ "$state" != "running" ]]; then
       result=FAIL

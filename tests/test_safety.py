@@ -452,6 +452,36 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(ExperimentRunner.candidate_hash(prepared), approval["candidate_hash"])
         self.assertNotIn("approval", prepared)
 
+    # --- integration with P3 baseline capture and findings ----------------------------
+    def test_kill_switch_reads_write_p95_from_baseline_captured_from_sli_metrics(self):
+        from monitor.sli import append_jsonl
+        from monitor.window import baseline_from_metrics
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            for latency in (10, 20, 30, 40):
+                append_jsonl(root / "write.jsonl", {"kind": "write", "source": "live", "success": True, "latency_ms": latency, "timestamp": now})
+                append_jsonl(root / "search.jsonl", {"kind": "search", "source": "live", "success": True, "latency_ms": latency, "timestamp": now})
+                append_jsonl(root / "freshness.jsonl", {"kind": "freshness", "source": "live", "freshness_seconds": 1.0, "timestamp": now})
+            repository = LocalRepository(root / "db.sqlite3")
+            stored = repository.save_baseline("graph-1", baseline_from_metrics(root))
+            baseline = repository.get_baseline(stored["baseline_id"])
+        switch = KillSwitch(baseline, self.policy)
+        self.assertEqual(switch.evaluate({**HEALTHY, "write_p95_ms": 40.0}, 0).aborted, False)
+        self.assertEqual(switch.evaluate({**HEALTHY, "write_p95_ms": 121.0}, 0).reason, "p95_latency_above_baseline_multiplier")
+
+    def test_operator_runs_store_deterministic_findings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = Settings(root / "missing.yml", (), "http://127.0.0.1:9090", root / "db.sqlite3", ROOT / "configs" / "experiment-policy.yaml")
+            orchestrator = AgentOrchestrator(settings)
+            run = {"run_id": "run-x", "observations": [{**HEALTHY, "error_rate": 0.6}], "abort_reason": "error_rate_above_configured_limit", "recovery_verified": True}
+            findings = orchestrator.record_operator_run(run)
+            stored = orchestrator.list_findings("run-x")
+        self.assertTrue(findings)
+        self.assertEqual(len(stored), len(findings))
+
     # --- scoring / audit (unchanged behaviour) --------------------------------------
     def test_score_is_suppressed_for_incomplete_or_unsafe_runs(self):
         incomplete = calculate_resilience_score({"score_components": {"availability": 1.0}, "baseline_valid": True})

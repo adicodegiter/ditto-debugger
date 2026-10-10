@@ -10,6 +10,8 @@ from .settings import Settings
 from .store import LocalRepository
 from safety.policy import Policy
 from safety.runner import RunnerError
+from monitor.window import baseline_from_metrics
+from ai.report import generate_findings
 
 
 # Keys the store adds to a candidate when reading it back. They are not part of the
@@ -40,15 +42,18 @@ class AgentOrchestrator:
         graph = self.discover_architecture()
         if graph["status"] != "available":
             raise ValueError("No discovered deployment is available for a baseline.")
-        telemetry = self.collect_telemetry()
+        telemetry = baseline_from_metrics(
+            self.settings.metrics_dir,
+            thresholds_file=self.settings.policy_path.parent / "telemetry.yaml",
+        )
         return self.repository.save_baseline(graph["graph_version"], telemetry)
 
     def plan_experiments(self, baseline_id: str, max_candidates: int) -> dict[str, Any]:
         graph = self.discover_architecture()
-        telemetry = self.collect_telemetry()
         baseline = self.repository.get_baseline(baseline_id)
         if baseline is None:
             raise LookupError("Baseline was not found.")
+        telemetry = baseline["telemetry"]
         plan = self.planning_agent.plan(graph, telemetry, baseline, max_candidates)
         return self.repository.save_plan(plan)
 
@@ -84,6 +89,13 @@ class AgentOrchestrator:
             raise RunnerError("The experiment has no executable baseline reference.")
         candidate = {key: value for key, value in experiment.items() if key not in _STORED_ENRICHMENT_KEYS}
         return candidate, experiment.get("approval"), baseline
+
+    def record_operator_run(self, run: dict[str, Any]) -> list[dict[str, Any]]:
+        """Persist a run from the operator CLI together with its deterministic findings."""
+        findings = generate_findings(run)
+        self.repository.save_run(run)
+        self.repository.save_findings(run["run_id"], findings)
+        return findings
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.repository.list_runs(limit)
