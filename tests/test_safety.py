@@ -596,6 +596,14 @@ class SafetyTests(unittest.TestCase):
         })
         self.assertEqual(components["availability"], 0.25)
 
+    def test_latency_compares_write_p95_against_write_baseline_only(self):
+        components = derive_score_components({
+            "status": "completed",
+            "baseline_write_p95_ms": 16.0,
+            "observations": [{"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 16.0, "search_p95_ms": 50.0}],
+        })
+        self.assertEqual(components["latency"], 1.0)
+
     def test_aborted_run_gets_detection_but_no_fabricated_recovery(self):
         components = derive_score_components({
             "status": "aborted",

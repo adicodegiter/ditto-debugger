@@ -23,7 +23,8 @@ def derive_score_components(run: dict[str, Any], recovery_budget_seconds: float 
     if not observations:
         return {}
     error_rates = [value for item in observations for value in (_finite(item.get("write_error_rate")), _finite(item.get("search_error_rate"))) if value is not None]
-    p95_values = [value for item in observations for value in (_finite(item.get("write_p95_ms")), _finite(item.get("search_p95_ms"))) if value is not None]
+    # Write p95 only: the baseline is a write p95, and search is normally slower than writes.
+    p95_values = [value for item in observations if (value := _finite(item.get("write_p95_ms"))) is not None]
     baseline_p95 = _finite(run.get("baseline_write_p95_ms"))
     components: dict[str, float] = {}
     if error_rates:
