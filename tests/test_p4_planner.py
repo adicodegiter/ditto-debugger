@@ -48,12 +48,16 @@ class P4PlannerTests(unittest.TestCase):
 
     def test_first_experiment_is_low_blast_radius_things_search_on_the_real_compose_graph(self):
         result = self.plan()
-        self.assertEqual([c["target_component"] for c in result["candidates"]], ["things-search"])
-        top = result["candidates"][0]
-        self.assertEqual(top["predicted_slis"], {"write": "hold", "search": "fail", "freshness": "hold"})
-        self.assertIn("low-blast-radius first experiment", top["reason"])
-        self.assertTrue(any(r["target"] == "gateway" and "deferred" in r["reason"] for r in result["policy_rejections"]))
-        Draft202012Validator(SCHEMA).validate(top)
+        limit = 0.35
+        self.assertTrue(all(c["score_terms"]["impact"] <= limit for c in result["candidates"]))
+        restart = next(c for c in result["candidates"] if c["target_component"] == "things-search" and c["action"] == "restart_container")
+        self.assertEqual(restart["predicted_slis"], {"write": "hold", "search": "fail", "freshness": "hold"})
+        self.assertIn("low-blast-radius first experiment", restart["reason"])
+        deferred = {(r.get("action"), r["target"]) for r in result["policy_rejections"] if "deferred" in r["reason"]}
+        self.assertIn(("restart_container", "gateway"), deferred)
+        self.assertIn(("cpu_throttle", "mongodb"), deferred, "mongodb is high impact: never a first experiment")
+        for candidate in result["candidates"]:
+            Draft202012Validator(SCHEMA).validate(candidate)
 
     def test_gateway_becomes_eligible_after_a_completed_run_and_is_ranked_first(self):
         self.repo.record_outcome("things-search", "restart_container", "failure_observed", "run:one")
@@ -81,9 +85,15 @@ class P4PlannerTests(unittest.TestCase):
         self.assertIn("lowest impact available", result["candidates"][0]["reason"])
 
     def test_forbidden_targets_never_appear(self):
-        result = self.plan()
-        names = {c["target_component"] for c in result["candidates"]}
-        self.assertFalse(names & {"mongodb", "nginx", "policies", "things", "connectivity", "ditto-ui"})
+        self.repo.record_outcome("things-search", "restart_container", "no_failure_observed", "run:one")
+        result = ExperimentPlanningAgent(POLICY, self.repo).plan(self.graph, self.telemetry, self.baseline, 10)
+        pairs = {(c["action"], c["target_component"]) for c in result["candidates"]}
+        names = {target for _, target in pairs}
+        self.assertFalse(names & {"policies", "things", "connectivity", "ditto-ui"})
+        # Denied/special targets only through the action that lists them explicitly.
+        self.assertEqual({a for a, t in pairs if t == "mongodb"} - {"cpu_throttle"}, set())
+        self.assertEqual({a for a, t in pairs if t == "nginx"} - {"traffic_burst"}, set())
+        self.assertIn(("cpu_throttle", "mongodb"), pairs, "eligible once a run has completed")
         self.assertFalse(result["execution_enabled"])
 
     def test_ranking_is_reproducible(self):

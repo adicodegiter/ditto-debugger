@@ -173,7 +173,7 @@ def _parser() -> argparse.ArgumentParser:
 
     plan = sub.add_parser("plan", help="rank candidate experiments for a baseline")
     plan.add_argument("baseline_id")
-    plan.add_argument("--max-candidates", type=int, default=3)
+    plan.add_argument("--max-candidates", type=int, default=6)
     plan.set_defaults(handler=cmd_plan)
 
     approve = sub.add_parser("approve", help="record a human approval for one immutable candidate")
