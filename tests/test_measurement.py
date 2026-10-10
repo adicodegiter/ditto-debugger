@@ -19,6 +19,92 @@ from simulator.fleet_workload import _run_freshness_probe, _run_search_probe, _r
 
 
 class MeasurementSliTests(unittest.TestCase):
+    def test_vehicle_offset_selects_isolated_burst_twins(self):
+        from simulator import fleet_workload
+        captured_urls = []
+
+        class FakeSession:
+            urls = captured_urls
+
+            def __init__(self):
+                self.auth = None
+
+            def put(self, url, **kwargs):
+                self.urls.append(url)
+                return Mock(status_code=204, json=lambda: {}, text="")
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(fleet_workload.requests, "Session", FakeSession):
+            fleet_workload.run_fleet_workload(
+                base_url="http://local", vehicles=16, vehicle_offset=100, duration_seconds=0,
+                metrics_dir=directory, capture_containers=False, freshness_method="poll-proxy",
+            )
+        vehicle_urls = [url for url in captured_urls if "/things/bosch.fleet:vehicle-" in url]
+        self.assertEqual(
+            vehicle_urls,
+            [f"http://local/api/2/things/bosch.fleet:vehicle-{index:02d}" for index in range(101, 117)],
+        )
+        self.assertFalse(any("vehicle-0" in url for url in vehicle_urls))
+
+    def test_vehicle_offset_defaults_to_normal_fleet(self):
+        from simulator import fleet_workload
+        captured_urls = []
+
+        class FakeSession:
+            urls = captured_urls
+
+            def __init__(self):
+                self.auth = None
+
+            def put(self, url, **kwargs):
+                self.urls.append(url)
+                return Mock(status_code=204, json=lambda: {}, text="")
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(fleet_workload.requests, "Session", FakeSession):
+            fleet_workload.run_fleet_workload(
+                base_url="http://local", vehicles=8, duration_seconds=0,
+                metrics_dir=directory, capture_containers=False, freshness_method="poll-proxy",
+            )
+        vehicle_urls = [url for url in captured_urls if "/things/bosch.fleet:vehicle-" in url]
+        self.assertEqual(vehicle_urls[0].rsplit("-", 1)[-1], "01")
+        self.assertEqual(vehicle_urls[-1].rsplit("-", 1)[-1], "08")
+
+    def test_vehicle_offset_rejects_invalid_ranges(self):
+        from simulator import fleet_workload
+        with self.assertRaises(ValueError):
+            fleet_workload.run_fleet_workload(vehicle_offset=-1)
+        with self.assertRaises(ValueError):
+            fleet_workload.run_fleet_workload(vehicles=16, vehicle_offset=990)
+
+    def test_phase_window_outside_samples_is_unhealthy(self):
+        from monitor.cli import _parse_timestamp
+
+        with tempfile.TemporaryDirectory() as directory:
+            timestamp = "2026-10-10T13:00:00Z"
+            for kind in ("write", "search", "freshness"):
+                record = {
+                    "kind": kind,
+                    "source": "live",
+                    "timestamp": timestamp,
+                    "success": True,
+                    "latency_ms": 1,
+                }
+                if kind == "freshness":
+                    record["freshness_seconds"] = 1
+                append_jsonl(Path(directory) / f"{kind}.jsonl", record)
+            summary = baseline_summary(
+                directory,
+                window_start=_parse_timestamp("2026-10-10T14:00:00Z"),
+                window_end=_parse_timestamp("2026-10-10T14:00:30Z"),
+            )
+        self.assertEqual(summary["status"], "unhealthy")
+        self.assertTrue(any("Missing" in warning for warning in summary["warnings"]))
+
     def test_sse_parser_reads_json_data_events(self):
         events = list(parse_sse_events([
             "event: thing\n",
