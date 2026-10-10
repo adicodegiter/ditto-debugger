@@ -72,6 +72,17 @@ function renderGraph(graph) {
 function renderTelemetry(telemetry) {
   document.querySelector("#telemetry-status").textContent = telemetry.status || "Unavailable";
   document.querySelector("#coverage").textContent = `${Math.round((telemetry.coverage || 0) * 100)}% coverage`;
+  const observations = telemetry.observations || [];
+  const metric = (name) => observations.find((item) => String(item.metric || "").toLowerCase().includes(name));
+  const write = metric("write");
+  const search = metric("search");
+  const freshness = metric("freshness");
+  document.querySelector("#write-success").textContent = write?.value ?? "—";
+  document.querySelector("#search-success").textContent = search?.value ?? "—";
+  document.querySelector("#freshness-p95").textContent = freshness?.value ?? "—";
+  document.querySelector("#write-latency").textContent = write?.quality || "No samples";
+  document.querySelector("#search-latency").textContent = search?.quality || "No samples";
+  document.querySelector("#freshness-method").textContent = freshness?.quality || "No samples";
   const list = document.querySelector("#telemetry-list");
   if (!telemetry.observations?.length) {
     list.innerHTML = `<p class="muted">${escapeText(telemetry.warnings?.[0] || "No observations available.")}</p>`;
@@ -79,6 +90,12 @@ function renderTelemetry(telemetry) {
   }
   list.innerHTML = telemetry.observations.slice(0, 12).map((item) => `
     <div class="telemetry-row"><strong>${escapeText(item.metric)}</strong><span>${escapeText(item.value)} · ${escapeText(item.quality)}</span></div>`).join("");
+}
+
+function renderBaseline(baseline) {
+  const status = baseline?.status || "Not captured";
+  document.querySelector("#baseline-status").textContent = status;
+  document.querySelector("#baseline-detail").textContent = baseline?.baseline_id || "Healthy live telemetry required";
 }
 
 function renderPlan(plan) {
@@ -144,29 +161,49 @@ function renderFindings(findings) {
     </article>`).join("");
 }
 
+function renderAudit(events) {
+  document.querySelector("#audit-count").textContent = String(events.length);
+  const list = document.querySelector("#audit-list");
+  if (!events.length) {
+    list.innerHTML = '<p class="muted">No audit events saved.</p>';
+    return;
+  }
+  list.innerHTML = events.slice(0, 10).map((item) => `
+    <article class="finding-row">
+      <div class="activity-title"><strong>${escapeText(item.event)}</strong></div>
+      <p class="activity-meta">${escapeText(item.recorded_at || "")}</p>
+      <pre>${escapeText(JSON.stringify(item.payload || {}, null, 2))}</pre>
+    </article>`).join("");
+}
+
 async function loadSavedRecords() {
-  const [plans, runs, findings] = await Promise.all([
+  const [plans, runs, findings, audit] = await Promise.all([
     getJson("/api/v1/experiments"),
     getJson("/api/v1/runs"),
     getJson("/api/v1/findings"),
+    getJson("/api/v1/audit"),
   ]);
   renderSavedPlans(plans.plans);
   renderRuns(runs.runs);
   renderFindings(findings.findings);
+  renderAudit(audit.events);
 }
 
 async function loadDashboard() {
   document.querySelector("#refresh-button").disabled = true;
   try {
-    const [agents, graph, telemetry] = await Promise.all([
+    const [health, agents, graph, telemetry] = await Promise.all([
+      getJson("/api/v1/health"),
       getJson("/api/v1/agents"),
       getJson("/api/v1/architecture"),
       getJson("/api/v1/telemetry"),
     ]);
+    document.querySelector("#execution-state").textContent = health.execution_enabled ? "OPERATOR GATED" : "API EXECUTION DISABLED";
     renderAgents(agents.agents);
     renderGraph(graph);
     renderTelemetry(telemetry);
-    document.querySelector("#baseline-button").disabled = graph.status !== "available" || telemetry.status !== "available";
+    renderBaseline(null);
+    document.querySelector("#baseline-button").disabled = graph.status !== "available";
     await loadSavedRecords();
   } catch (error) {
     agentList.innerHTML = `<p class="muted">${escapeText(error.message)}</p>`;
@@ -191,6 +228,7 @@ document.querySelector("#baseline-button").addEventListener("click", async () =>
   try {
     const baseline = await getJson("/api/v1/baselines", { method: "POST" });
     baselineInput.value = baseline.baseline_id;
+    renderBaseline(baseline);
     planResults.innerHTML = `<p class="muted">Baseline ${escapeText(baseline.baseline_id)} captured. Plan a candidate when ready.</p>`;
   } catch (error) {
     planResults.innerHTML = `<p class="muted">${escapeText(error.message)}</p>`;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -11,7 +12,7 @@ from unittest.mock import patch
 
 from ai.report import generate_findings
 from monitor.sli import append_jsonl, baseline_summary, load_thresholds, summarize_freshness_samples, summarize_metrics
-from monitor.window import window_stats
+from monitor.window import baseline_from_metrics, window_stats
 from monitor.container import capture_container_metrics
 from monitor.sse import FreshnessSseSubscriber, parse_sse_events
 from simulator.fleet_workload import _run_freshness_probe, _run_search_probe, _run_write_probe
@@ -29,9 +30,28 @@ class MeasurementSliTests(unittest.TestCase):
     def test_sse_subscriber_calculates_freshness_from_latest_event(self):
         subscriber = FreshnessSseSubscriber("http://local/api/2", ["bosch.fleet:vehicle-01"], ("ditto", "ditto"))
         subscriber._latest["bosch.fleet:vehicle-01"] = datetime.now(timezone.utc).isoformat()
+        subscriber._latest_freshness["bosch.fleet:vehicle-01"] = 0.012
         sample = subscriber.sample("bosch.fleet:vehicle-01")
         self.assertTrue(sample["success"])
-        self.assertGreaterEqual(sample["freshness_seconds"], 0)
+        self.assertEqual(sample["freshness_seconds"], 0.012)
+
+    def test_baseline_artifact_maps_healthy_to_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            metrics = Path(directory) / "metrics"
+            metrics.mkdir()
+            baselines = Path(directory) / "baselines"
+            baselines.mkdir()
+            summary = {"status": "healthy", "write": {}, "search": {}, "freshness": {}}
+            (baselines / "baseline-run.json").write_text(json.dumps({
+                "baseline_id": "baseline-run",
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "source": "client-sli-jsonl",
+                "status": "healthy",
+                "summary": summary,
+            }), encoding="utf-8")
+            baseline = baseline_from_metrics(metrics)
+        self.assertEqual(baseline["status"], "available")
+        self.assertEqual(baseline["baseline_id"], "baseline-run")
     def test_container_metrics_capture_is_local_and_jsonl(self):
         completed = Mock(returncode=0, stdout='{"Name":"ditto-things-search-1","CPUPerc":"2.5%","MemPerc":"1%"}\n', stderr="")
         with tempfile.TemporaryDirectory() as directory, patch("monitor.container.subprocess.run", return_value=completed) as run:
@@ -185,6 +205,12 @@ class MeasurementSliTests(unittest.TestCase):
         self.assertFalse(search["success"])
         self.assertIsNone(search["status_code"])
         self.assertEqual(search["error"], "Timeout")
+
+    def test_search_probe_uses_short_timeout(self):
+        session = Mock()
+        session.get.side_effect = requests.Timeout("search timeout")
+        _run_search_probe(session, "bosch.fleet:vehicle-01", api_base="http://local/api/2", run_id="run-timeout")
+        self.assertEqual(session.get.call_args.kwargs["timeout"], 3)
 
     def test_failed_freshness_probe_records_failure_sample(self):
         session = Mock()
