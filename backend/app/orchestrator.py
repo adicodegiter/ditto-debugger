@@ -11,6 +11,7 @@ from .store import LocalRepository
 from safety.policy import Policy
 from safety.runner import RunnerError
 from monitor.window import baseline_from_metrics
+from ai.diagnosis import diagnose, history_outcome
 from ai.report import generate_findings
 
 
@@ -94,8 +95,23 @@ class AgentOrchestrator:
         candidate = {key: value for key, value in experiment.items() if key not in _STORED_ENRICHMENT_KEYS}
         return candidate, experiment.get("approval"), baseline
 
-    def record_operator_run(self, run: dict[str, Any]) -> list[dict[str, Any]]:
-        """Persist a run from the operator CLI together with its deterministic findings."""
+    def diagnose_run(self, run: dict[str, Any], candidate: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
+        """Predicted vs observed for one run (deterministic, no LLM)."""
+        return diagnose(candidate, run, baseline)
+
+    def record_operator_run(
+        self,
+        run: dict[str, Any],
+        candidate: dict[str, Any] | None = None,
+        baseline: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Persist a real run from the operator CLI with its diagnosis, findings and planner history."""
+        if candidate is not None:
+            run["diagnosis"] = self.diagnose_run(run, candidate, baseline)
+            outcome = history_outcome(run["diagnosis"])  # None for forced tests / dry runs / gaps
+            if outcome is not None:
+                self.repository.record_outcome(candidate["target_component"], candidate["action"], outcome, f"run:{run['run_id']}")
+            run["history_outcome"] = outcome
         findings = generate_findings(run)
         self.repository.save_run(run)
         self.repository.save_findings(run["run_id"], findings)

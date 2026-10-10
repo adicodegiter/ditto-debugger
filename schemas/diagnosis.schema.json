@@ -34,7 +34,7 @@
       "type": "object",
       "properties": { "tripped": { "type": "boolean" }, "forced_test": { "type": "boolean" } }
     },
-    "evidence_use": { "enum": ["experiment", "kill_switch_test", "inconclusive"] },
+    "evidence_use": { "enum": ["experiment", "kill_switch_test", "dry_run", "inconclusive"] },
     "flags": { "type": "array", "items": { "type": "string" } },
     "warnings": { "type": "array", "items": { "type": "string" } },
     "summary": { "type": "string", "minLength": 1 }

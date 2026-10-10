@@ -42,6 +42,34 @@ def generate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
             "confidence": 0.99,
             "ai_generated": False,
         })
+    diagnosis = run.get("diagnosis") or {}
+    if diagnosis.get("evidence_use") == "experiment":
+        worse = {sli: v for sli, v in diagnosis.get("comparison", {}).items() if v.get("verdict") == "worse_than_predicted"}
+        better = {sli: v for sli, v in diagnosis.get("comparison", {}).items() if v.get("verdict") == "better_than_predicted"}
+        if worse:
+            findings.append({
+                "schema_version": "1.0",
+                "id": f"{run_id}-worse-than-predicted",
+                "run_id": run_id,
+                "severity": "high",
+                "summary": "Impact was worse than predicted on: " + ", ".join(f"{sli} (predicted {v['predicted']}, observed {v['observed']})" for sli, v in worse.items()) + ".",
+                "evidence": evidence + [f"diagnosis:{diagnosis.get('diagnosis_id')}"] + [f"{sli}:{v['observed']}" for sli, v in worse.items()],
+                "recommendation": "Treat this as an unexpected coupling: check timeouts, retries and resource limits on the affected path before widening fault scope.",
+                "confidence": 0.9,
+                "ai_generated": False,
+            })
+        elif better:
+            findings.append({
+                "schema_version": "1.0",
+                "id": f"{run_id}-better-than-predicted",
+                "run_id": run_id,
+                "severity": "info",
+                "summary": "The system absorbed more than predicted on: " + ", ".join(f"{sli} (predicted {v['predicted']}, observed {v['observed']})" for sli, v in better.items()) + ".",
+                "evidence": evidence + [f"diagnosis:{diagnosis.get('diagnosis_id')}"],
+                "recommendation": "Update the planner's effect model, or check that the measurement window captured the full outage.",
+                "confidence": 0.75,
+                "ai_generated": False,
+            })
     if not findings:
         findings.append({
             "schema_version": "1.0",

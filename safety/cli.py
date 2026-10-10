@@ -150,8 +150,9 @@ def cmd_execute(args: argparse.Namespace) -> int:
     if args.dry_run:
         run["dry_run"] = True
         run["dry_run_commands"] = [" ".join(command) for command in docker.commands]
+        run["diagnosis"] = orchestrator.diagnose_run(run, candidate, baseline)  # shown, never recorded
     else:
-        run["findings"] = orchestrator.record_operator_run(run)
+        run["findings"] = orchestrator.record_operator_run(run, candidate, baseline)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     suffix = ("-dry-run" if args.dry_run else "") + ("-forced-test" if args.forced_test else "")

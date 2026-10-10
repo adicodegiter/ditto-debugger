@@ -47,7 +47,8 @@ class P4DiagnosisTests(unittest.TestCase):
         self.assertEqual(d["prediction_accuracy"], 1.0)
         self.assertEqual(d["evidence_use"], "experiment")
         self.assertEqual(d["flags"], [])
-        self.assertEqual(history_outcome(d), "failure_observed")
+        # Search failing exactly as predicted is an expected impact, not a failure for the planner history.
+        self.assertEqual(history_outcome(d), "no_failure_observed")
 
     def test_worse_than_predicted_is_flagged(self):
         r = run([sli("write", 0.5, 900.0), sli("search", 1.0, 3000.0), sli("freshness", 0.0, 40.0),
@@ -55,6 +56,7 @@ class P4DiagnosisTests(unittest.TestCase):
         d = diagnose(EXPERIMENT, r, BASELINE)
         self.assertEqual(d["comparison"]["write"]["verdict"], "worse_than_predicted")
         self.assertIn("worse_than_predicted", d["flags"])
+        self.assertEqual(history_outcome(d), "failure_observed")
 
     def test_missing_sli_is_not_measured_never_assumed_healthy(self):
         r = run([sli("search", 1.0, 3000.0), {"kind": "recovery", "recovery_s": 20, "recovered": True}])
@@ -87,6 +89,27 @@ class P4DiagnosisTests(unittest.TestCase):
         d = diagnose(EXPERIMENT, run(NORMAL, experiment_id="other"), None)
         self.assertTrue(any("other" in w for w in d["warnings"]))
         self.assertTrue(any("no baseline" in w for w in d["warnings"]))
+
+    def test_real_runner_record(self):
+        """Run records from safety.runner: per-poll windows with a phase, top-level recovery fields."""
+        window = {"phase": "fault", "source": "sli_jsonl", "write_error_rate": 0.0, "write_p95_ms": 19.6, "write_samples": 38,
+                  "search_error_rate": 1.0, "search_samples": 37, "freshness_p95_seconds": 0.05, "freshness_samples": 37}
+        pre = {**window, "phase": "pre_fault", "search_error_rate": 0.0, "write_p95_ms": 15.0}
+        r = run([pre, window], recovery_verified=True, recovery_time_seconds=4.188)
+        d = diagnose(EXPERIMENT, r, BASELINE)
+        self.check(d, r)
+        self.assertEqual(d["comparison"]["write"]["p95_ms"], 19.6)
+        self.assertEqual(d["comparison"]["search"]["observed"], "fail")
+        self.assertTrue(d["recovered"])
+        self.assertEqual(d["recovery_s"], 4.188)
+        self.assertEqual(d["evidence_use"], "experiment")
+
+    def test_real_dry_run_is_not_evidence(self):
+        r = run([{"phase": "fault", "write_error_rate": 0.0, "write_p95_ms": 15.0, "search_error_rate": 0.0}],
+                dry_run=True, recovery_verified=True, recovery_time_seconds=0.0)
+        d = diagnose(EXPERIMENT, r, BASELINE)
+        self.assertEqual(d["evidence_use"], "dry_run")
+        self.assertIsNone(history_outcome(d))
 
 
 if __name__ == "__main__":
