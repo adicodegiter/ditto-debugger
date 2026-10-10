@@ -1,0 +1,20 @@
+{
+  "_fixture": true,
+  "_source": "reconstructed from docs/m4-results.md and the 5.7 comparison record; per-run raw JSONL is unavailable",
+  "run_id": "run-c8b30b07c9f3",
+  "action": "restart_container",
+  "target": "things-search",
+  "action_params": {"duration_seconds": 10},
+  "baseline_id": null,
+  "baseline_write_p95_ms": 15.734,
+  "client_timeout_seconds": 10.0,
+  "recovery_time_seconds": 4.188,
+  "_reported_results": {
+    "search_outage_seconds_approx": 21.0,
+    "last_search_failure_after_rollback_seconds": 2.0,
+    "search_request_timeouts": {"count": 2, "failures": 2, "window_seconds": 24.9},
+    "search_failure_wait_seconds": 10.0,
+    "write_error_rate": 0.0,
+    "write_p95_ms": 19.609
+  }
+}

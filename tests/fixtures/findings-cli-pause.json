@@ -1,0 +1,45 @@
+{
+  "run_id": "run-fixture-pause",
+  "experiment_id": "pause-things-search-fixture",
+  "status": "completed",
+  "baseline_id": "baseline-fixture",
+  "score_components": {
+    "availability": 0.8,
+    "containment": 1.0,
+    "detection": 1.0,
+    "latency": 0.9,
+    "recovery": 0.9
+  },
+  "resilience_score": {"score": 88.0, "status": "complete"},
+  "prediction": {
+    "predicted_impacts": ["things-search"],
+    "predicted_slis": {"write": "hold", "search": "fail", "freshness": "hold"}
+  },
+  "diagnosis": {
+    "action": "pause_container",
+    "target_component": "things-search",
+    "evidence_use": "experiment",
+    "comparison": {
+      "write": {"predicted": "hold", "observed": "hold", "verdict": "match"},
+      "search": {"predicted": "fail", "observed": "degrade", "verdict": "better_than_predicted"},
+      "freshness": {"predicted": "hold", "observed": "hold", "verdict": "match"}
+    },
+    "kill_switch": {"forced_test": false, "tripped": false}
+  },
+  "observations": [
+    {
+      "phase": "fault",
+      "window_start": "2026-10-10T17:10:52Z",
+      "window_end": "2026-10-10T17:11:22Z",
+      "write_samples": 10,
+      "write_error_rate": 0.0,
+      "write_p95_ms": 23.0,
+      "search_samples": 10,
+      "search_error_rate": 0.3,
+      "freshness_samples": 10,
+      "freshness_p95_seconds": 0.03
+    }
+  ],
+  "recovery_verified": true,
+  "recovery_time_seconds": 4.0
+}
