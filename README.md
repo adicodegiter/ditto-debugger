@@ -48,7 +48,7 @@ The upstream Ditto module paths and the custom workbench code map are in [Ditto 
   `--dry-run` reads real state and SLIs but changes no container. See [docs/safety-model.md](docs/safety-model.md).
 - **M1 dependency map:** [docs/dependency-map.md](docs/dependency-map.md) (Mermaid) and `ai/dependency_map.json`, generated from the pinned compose file by `python -m ai.dependency_map`. Every edge is labelled configured, documented or manual, and every Ditto node lists the SLIs it can affect.
 - **M4 done on 2026-10-10:** a real `things-search` restart completed, with recovery verified 4.2 s after rollback. A forced kill-switch test aborted 2.5 s into the fault and rolled back 0.5 s later. See [docs/m4-results.md](docs/m4-results.md); to repeat it, follow [docs/m4-runbook.md](docs/m4-runbook.md).
-- **Day 2 (M5) done on 2026-10-10/11:** restart, pause and traffic-burst experiments ran live with fresh baselines, dry runs and typed approvals, and every one recovered. Predicted vs observed per SLI, ranked findings and the resilience score come from the run records ([docs/m5-results.md](docs/m5-results.md)). The 5.7 re-run showed the 3 s search timeout cuts a failing search from 10.0 s to 3.0 s. Remaining M6 work (findings report, video, submission) is tracked in [docs/day2-plan.md](docs/day2-plan.md).
+- **Day 2 (M5) done on 2026-10-10/11:** restart, pause and traffic-burst experiments ran live with fresh baselines, dry runs and typed approvals, and every one recovered. Predicted vs observed per SLI, ranked findings and the resilience score come from the run records ([docs/m5-results.md](docs/m5-results.md)). The 5.7 re-run showed the 3 s search timeout cuts a failing search from 10.0 s to 3.0 s. The [findings report](docs/findings-report.md) ranks the weaknesses with fixes and gives an overall resilience score of 83.69 / 100; remaining work (video, submission) is tracked in [docs/day2-plan.md](docs/day2-plan.md).
 - Team repository: https://github.com/adicodegiter/ditto-debugger
 
 ## Prerequisites
@@ -241,8 +241,21 @@ Where the data goes (all git-ignored, created on the machine that runs the stack
 [docs/evidence/windows-host/](docs/evidence/windows-host/README.md) and summarized in
 [docs/m4-results.md](docs/m4-results.md) and [docs/m5-results.md](docs/m5-results.md): `things-search` restart and
 pause, a traffic burst through nginx, and the 5.7 remediation re-run. Forced kill-switch tests (`--forced-test`) are
-labelled and never scored. Deliverables: [architecture](docs/architecture.md), findings report
-(`docs/findings-report.md`, in progress), demo video (link to follow).
+labelled and never scored.
+
+## Results and deliverables
+
+- **[Findings report](docs/findings-report.md)**: weaknesses ranked by severity with measured evidence, fixes and
+  validation tests; predicted vs observed per run; the remediation re-test; resilience scores. Overall score
+  **83.69 / 100** (mean of the three scored runs, range 70.39 to 91.68). Regenerate it from the committed evidence with
+  `python -m ai.report_export`, and check every number traces to a run with `python -m ai.trace_check docs/findings-report.md`.
+- **Top weakness:** search does not fail fast while `things-search` is unavailable. Every failed search ends as a
+  client timeout, so callers wait their full timeout. Recommended fix: a gateway-side timeout or circuit breaker for search.
+- **[Architecture overview](docs/architecture.md)**: three agents, the deterministic control plane and its safety gates.
+- **Evidence:** [docs/evidence/windows-host/](docs/evidence/windows-host/README.md) (run records and raw probe samples),
+  [docs/m4-results.md](docs/m4-results.md), [docs/m5-results.md](docs/m5-results.md),
+  [docs/dashboard-check.md](docs/dashboard-check.md).
+- **Demo video (3 min or less):** _link to be added_.
 
 ## Stretch goals
 
