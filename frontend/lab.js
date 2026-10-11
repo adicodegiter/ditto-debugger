@@ -8,7 +8,11 @@ const D = {};
 const running = () => sim && sim.phase !== "done";
 let sim = null, timer = null, selScenario = null, selNode = null, tab = params.get("tab") || "next";
 const LABEL = { restart_container: "Restart", stop_container: "Stop", pause_container: "Pause", cpu_throttle: "CPU throttle", traffic_burst: "Traffic burst" };
-const ROLLBACK = { restart_container: "start the container again", stop_container: "start the container again", pause_container: "unpause the container", cpu_throttle: "restore the CPU quota", traffic_burst: "terminate the burst process" };
+const ROLLBACK = { restart_container: "start the container again", stop_container: "start the container again", pause_container: "unpause the container", cpu_throttle: "restore the CPU quota", traffic_burst: "terminate the burst process", compound: "roll back every fault, newest first" };
+// A combined run's action is "compound:a+b" and its target "x+y" (two staged faults, one kill switch).
+const actionKey = (a) => (String(a || "").startsWith("compound:") ? "compound" : a);
+const labelOf = (a) => (actionKey(a) === "compound" ? "Combined failure" : LABEL[a] || a);
+const targetsOf = (t) => String(t || "").split("+").filter(Boolean);
 const TICK_MS = 450, POLL_S = 2;
 const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
 const fmt = { ms: (v) => (v == null ? "—" : `${v.toFixed(v < 100 ? 1 : 0)} ms`), pct: (v) => (v == null ? "—" : `${(v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0)}%`), s: (v) => (v == null ? "—" : `${v < 10 ? v.toFixed(2) : v.toFixed(1)} s`) };
@@ -69,19 +73,20 @@ function affectedSet(target) {
 function renderGraph() {
   const m = graphModel();
   const sc = sim && sim.phase !== "done" ? sim.scenario : null;
-  const target = sc?.target, hit = target ? affectedSet(target) : new Set();
+  const targets = new Set(sc ? targetsOf(sc.target) : []);
+  const hit = new Set([...targets].flatMap((t) => [...affectedSet(t)]).filter((id) => !targets.has(id)));
   const recov = sim && (sim.phase === "rollback" || sim.phase === "recovering");
   const edgeSvg = m.edges.map((e) => {
     const a = m.pos[e.source], b = m.pos[e.target];
     const same = m.depth[e.source] === m.depth[e.target];
     const sx = a.x + m.W, sy = a.y + m.H / 2, tx = same ? b.x + m.W : b.x, ty = b.y + m.H / 2;
     const d = same ? `M${sx},${sy} C${sx + 46},${sy} ${sx + 46},${ty} ${tx},${ty}` : `M${sx},${sy} C${sx + 40},${sy} ${tx - 40},${ty} ${tx},${ty}`;
-    const hot = sc && !recov && (e.source === target || e.target === target || (hit.has(e.source) && hit.has(e.target)));
+    const hot = sc && !recov && (targets.has(e.source) || targets.has(e.target) || (hit.has(e.source) && hit.has(e.target)));
     return `<path class="edge ${e.provenance_type === "documented" ? "documented" : ""} ${hot ? "hot" : ""}" d="${d}" marker-end="url(#arr)"><title>${esc(e.source)} → ${esc(e.target)} · ${esc(e.relation)} · ${esc(e.provenance_type)}</title></path>`;
   }).join("");
   const nodeSvg = m.nodes.map((n) => {
     const p = m.pos[n.id];
-    const cls = [n.id === selNode ? "sel" : "", sc && n.id === target ? (recov ? "recover" : "target") : "", sc && hit.has(n.id) ? (recov ? "recover" : "impacted") : ""].join(" ");
+    const cls = [n.id === selNode ? "sel" : "", sc && targets.has(n.id) ? (recov ? "recover" : "target") : "", sc && hit.has(n.id) ? (recov ? "recover" : "impacted") : ""].join(" ");
     const SHORT = { service_availability: "avail", error_rate: "err", p95_latency: "p95", staleness_p95: "stale" };
     const slis = (n.affected_slis || []).map((x) => SHORT[x] || x).join(" · ") || n.labels?.workbench_slis?.split(",").join(" · ") || "";
     return `<g class="node ${cls}" data-id="${esc(n.id)}" transform="translate(${p.x},${p.y})"><rect width="${m.W}" height="${m.H}"/><text x="10" y="19">${esc(n.id)}</text><text class="slis" x="10" y="35">${esc(slis)}</text></g>`;
@@ -107,7 +112,7 @@ function buildScenarios() {
     const key = r.diagnosis.action + r.diagnosis.target_component;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ id: r.run_id, kind: "replay", run: r, action: r.diagnosis.action, target: r.diagnosis.target_component, title: `${LABEL[r.diagnosis.action] || r.diagnosis.action} · ${r.diagnosis.target_component}`, sub: `replays ${r.run_id.slice(0, 16)} (${r.status}${r.abort_reason ? ", " + r.abort_reason.replace(/_/g, " ") : ""})` });
+    out.push({ id: r.run_id, kind: "replay", run: r, action: r.diagnosis.action, target: r.diagnosis.target_component, title: `${labelOf(r.diagnosis.action)} · ${targetsOf(r.diagnosis.target_component).join(" + ")}`, sub: `replays ${r.run_id.slice(0, 16)} (${r.status}${r.abort_reason ? ", " + r.abort_reason.replace(/_/g, " ") : ""})` });
   });
   [{ action: "stop_container", target: "gateway", title: "Stop · gateway", sub: "model: front door goes down, everything fails", seconds: 45 },
    { action: "cpu_throttle", target: "mongodb", title: "CPU throttle · mongodb", sub: "model: database slows, latency climbs", seconds: 45 }]
@@ -117,7 +122,12 @@ function buildScenarios() {
 function renderScenarios() {
   const list = buildScenarios();
   $("#scenarios").innerHTML = list.map((s) => `<button class="scn ${s.id === selScenario ? "on" : ""}" data-id="${esc(s.id)}" ${running() ? "disabled" : ""}><strong>${esc(s.title)}</strong><small>${esc(s.sub)}</small><div class="src ${s.kind === "replay" ? "real" : "model"}">${s.kind === "replay" ? "● REAL RUN REPLAY" : "◆ MODEL · NOT MEASURED"}</div></button>`).join("");
-  $("#scenarios").querySelectorAll(".scn").forEach((b) => b.addEventListener("click", () => { if (running()) return; selScenario = b.dataset.id; renderScenarios(); }));
+  $("#scenarios").querySelectorAll(".scn").forEach((b) => b.addEventListener("click", () => {
+    if (running()) return;
+    selScenario = b.dataset.id;
+    if (sim) { resetSim(); return; } // a finished run's charts give way to live data again
+    renderScenarios();
+  }));
 }
 
 /* ---------- simulation ---------- */
@@ -152,7 +162,7 @@ function startSim() {
   $("#feed").innerHTML = "";
   logEv(0, "info", `Simulation started: ${sc.title}. No container is touched.`);
   logEv(0, "info", `Kill switch armed: write errors > ${fmt.pct(thresholds().write_error_rate)}, write p95 > ${thresholds().write_p95_multiplier}× baseline (${fmt.ms(sim.base * thresholds().write_p95_multiplier)}), freshness p95 > ${thresholds().freshness_p95_seconds} s.`);
-  renderScenarios(); renderGraph();
+  renderScenarios(); renderGraph(); renderTabBody();
   timer = setInterval(step, TICK_MS);
 }
 const tSec = () => Math.max(0, sim.points.length - 1) * POLL_S;
@@ -173,7 +183,7 @@ function fire(kind, reason) {
   sim.killed = { kind, reason, t: tSec() };
   sim.tripped = new Set(breach(sim.last).map((w) => w[0]));
   logEv(tSec(), "bad", `KILL SWITCH FIRED (${kind}): ${reason}`);
-  logEv(tSec(), "warn", `Rollback: ${ROLLBACK[sim.scenario.action] || "undo the fault"}.`);
+  logEv(tSec(), "warn", `Rollback: ${ROLLBACK[actionKey(sim.scenario.action)] || "undo the fault"}.`);
   sim.phase = "rollback"; sim.recoverTicks = 0;
   $("#btn-kill").disabled = true;
 }
@@ -218,12 +228,23 @@ function step() {
 }
 function endSim() {
   clearInterval(timer); timer = null;
-  document.body.classList.remove("simulating"); $("#mode").classList.remove("sim"); $("#mode").textContent = "SIMULATION DONE";
+  document.body.classList.remove("simulating"); $("#mode").classList.remove("sim");
+  // The charts keep showing the finished run until the operator picks a scenario or runs again,
+  // so the badge must not claim LIVE VIEW meanwhile.
+  $("#mode").textContent = "SIMULATION DONE · pick a scenario for live view";
   $("#btn-attack").disabled = false; $("#btn-kill").disabled = true;
   $("#btn-attack").textContent = "↻ Run again";
-  setTimeout(() => { if (!timer) { $("#mode").textContent = "LIVE VIEW"; } }, 4000);
+  renderScenarios(); renderTabBody(); // re-enable the cards and "Simulate this" buttons now, not at the next 15 s refresh
 }
-function resetSim() { sim = null; $("#tele-sub").textContent = "last 5 minutes from the fleet workload"; renderAll(); }
+function resetSim() {
+  sim = null;
+  $("#mode").textContent = "LIVE VIEW";
+  $("#btn-attack").textContent = "▶ Simulate attack";
+  $("#tele-sub").textContent = "last 5 minutes from the fleet workload";
+  $("#feed").innerHTML = `<li class="muted">Nothing yet. Pick a scenario and press “Simulate attack”.</li>`;
+  $("#progress-bar").style.width = "0"; $("#timer").textContent = "idle";
+  renderAll();
+}
 function renderRules() {
   const th = thresholds();
   const p = sim?.last, base = sim?.base ?? baselineP95({});
@@ -292,21 +313,22 @@ function renderTabBody() {
   if (tab === "next") {
     const cands = [...(D.plan?.candidates || [])].sort((a, b) => (b.selection_score ?? 0) - (a.selection_score ?? 0));
     if (!cands.length) { el.innerHTML = `<div class="empty">No plan yet. Capture a baseline, then plan: <code>python -m safety.cli baseline</code> → <code>plan &lt;baseline_id&gt;</code></div>`; return; }
-    el.innerHTML = `<p class="hyp">The planner ranks every allowed fault by information gain and risk (${esc(D.plan.ranking_method)}). Higher score = test it sooner. Predicted SLI impact shown per fault.</p><div class="rank-list">${cands.map((c, i) => `<div class="rank"><div class="n">${i + 1}</div><div><h4>${esc(LABEL[c.action] || c.action)} · ${esc(c.target_component)} <span class="sev ${c.risk_score > 0.25 ? "medium" : "info"}">risk ${esc(c.risk_score)}</span> <span class="chip">${esc(c.duration_seconds)} s</span> <span class="chip">${esc(c.approval_status)}</span> <button class="row-btn" data-sim="${esc(c.action)}|${esc(c.target_component)}" ${running() ? "disabled" : ""}>Simulate this</button></h4><div class="bar"><i style="width:${Math.round((c.selection_score ?? 0) * 100)}%"></i></div><div>${chips(c.predicted_slis)}</div><div class="hyp">${esc(c.hypothesis || "")}</div>${c.approval_status === "approved" ? `<div class="hyp">Operator command: <code>CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute ${esc(c.id)}</code></div>` : ""}</div></div>`).join("")}</div>`;
+    el.innerHTML = `<p class="hyp">The planner ranks every allowed fault by information gain and risk (${esc(D.plan.ranking_method)}). Higher score = test it sooner. Predicted SLI impact shown per fault.</p><div class="rank-list">${cands.map((c, i) => `<div class="rank"><div class="n">${i + 1}</div><div><h4>${esc(labelOf(c.action))} · ${esc(targetsOf(c.target_component).join(" + "))} <span class="sev ${c.risk_score > 0.25 ? "medium" : "info"}">risk ${esc(c.risk_score)}</span> <span class="chip">${esc(c.duration_seconds)} s</span> <span class="chip">${esc(c.approval_status)}</span> <button class="row-btn" data-sim="${esc(c.action)}|${esc(c.target_component)}" ${running() ? "disabled" : ""}>Simulate this</button></h4><div class="bar"><i style="width:${Math.round((c.selection_score ?? 0) * 100)}%"></i></div><div>${chips(c.predicted_slis)}</div><div class="hyp">${esc(c.hypothesis || "")}</div>${c.approval_status === "approved" ? `<div class="hyp">Operator command: <code>CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute ${esc(c.id)}</code></div>` : ""}</div></div>`).join("")}</div>`;
     el.querySelectorAll("[data-sim]").forEach((b) => b.addEventListener("click", () => {
+      if (running()) return;
       const [a, t] = b.dataset.sim.split("|"); const s = buildScenarios().find((x) => x.action === a && x.target === t) || buildScenarios().find((x) => x.action === a);
-      if (s) { selScenario = s.id; renderScenarios(); window.scrollTo({ top: 0, behavior: "smooth" }); startSim(); }
+      if (s) { selScenario = s.id; if (sim) sim = null; renderScenarios(); window.scrollTo({ top: 0, behavior: "smooth" }); startSim(); }
     }));
   } else if (tab === "findings") {
     const r = D.ranked || [];
     if (!r.length) { el.innerHTML = `<div class="empty">No scored runs yet.</div>`; return; }
-    el.innerHTML = `<p class="hyp">Ranked by severity, then confidence. Measured facts come straight from run records. The fix is a <b>hypothesis</b> until a validation re-run confirms it.</p><div class="rank-list">${r.map((f) => `<div class="rank"><div class="n">${esc(f.rank)}</div><div><h4><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span> ${esc(LABEL[f.action] || f.action)} · ${esc(f.target)} <span class="chip">${esc(f.run_id)}</span></h4><div>${esc(f.summary)}</div><div class="facts">${(f.measured_facts || []).map((m) => `<span class="fact"><small>${esc(m.fact)}</small> <b>${esc(typeof m.value === "number" ? Math.round(m.value * 1000) / 1000 : m.value)}</b></span>`).join("")}</div><div class="hyp"><b>Hypothesis${f.hypothesis?.ai_generated ? " (AI-written)" : ""}:</b> ${esc(f.hypothesis?.text)}</div><div class="hyp"><b>Validate by:</b> ${esc(f.validation_test)}</div></div></div>`).join("")}</div>`;
+    el.innerHTML = `<p class="hyp">Ranked by severity, then confidence. Measured facts come straight from run records. The fix is a <b>hypothesis</b> until a validation re-run confirms it.</p><div class="rank-list">${r.map((f) => `<div class="rank"><div class="n">${esc(f.rank)}</div><div><h4><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span> ${esc(labelOf(f.action))} · ${esc(targetsOf(f.target).join(" + "))} <span class="chip">${esc(f.run_id)}</span></h4><div>${esc(f.summary)}</div><div class="facts">${(f.measured_facts || []).map((m) => `<span class="fact"><small>${esc(m.fact)}</small> <b>${esc(typeof m.value === "number" ? Math.round(m.value * 1000) / 1000 : m.value)}</b></span>`).join("")}</div><div class="hyp"><b>Hypothesis${f.hypothesis?.ai_generated ? " (AI-written)" : ""}:</b> ${esc(f.hypothesis?.text)}</div><div class="hyp"><b>Validate by:</b> ${esc(f.validation_test)}</div></div></div>`).join("")}</div>`;
   } else {
     const runs = (D.runs || []).filter((r) => r.resilience_score && r.resilience_score.status === "complete");
     if (!runs.length) { el.innerHTML = `<div class="empty">No complete scores yet.</div>`; return; }
     el.innerHTML = `<p class="hyp">Score = weighted blend of availability 30%, latency 20%, recovery 20%, containment 15%, detection 15%. Every component is computed from the run record.</p><div class="score-grid">${runs.map((r) => {
       const s = r.resilience_score, c = s.score >= 80 ? "var(--ok)" : s.score >= 60 ? "var(--warn)" : "var(--bad)";
-      return `<div class="score-card"><div class="ring" style="--v:${s.score};--c:${c}"><span>${esc(Math.round(s.score))}</span></div><div><strong>${esc(LABEL[r.diagnosis?.action] || "run")} · ${esc(r.diagnosis?.target_component || "")}</strong> <span class="chip">${esc(r.status)}</span>${Object.entries(s.components).map(([k, v]) => `<div class="comp"><span>${esc(k)}</span><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div><span>${v.toFixed(2)}</span></div>`).join("")}<div class="hyp">${esc(r.run_id)}</div></div></div>`;
+      return `<div class="score-card"><div class="ring" style="--v:${s.score};--c:${c}"><span>${esc(Math.round(s.score))}</span></div><div><strong>${esc(r.diagnosis?.action ? labelOf(r.diagnosis.action) : "run")} · ${esc(targetsOf(r.diagnosis?.target_component).join(" + "))}</strong> <span class="chip">${esc(r.status)}</span>${Object.entries(s.components).map(([k, v]) => `<div class="comp"><span>${esc(k)}</span><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div><span>${v.toFixed(2)}</span></div>`).join("")}<div class="hyp">${esc(r.run_id)}</div></div></div>`;
     }).join("")}</div>`;
   }
 }
