@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ditto Resilience Lab</title>
+  <link rel="stylesheet" href="/assets/lab.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">D</span><div><strong>Ditto Resilience Lab</strong><small>Map it · Measure it · Attack it (simulated) · Learn from it</small></div></div>
+    <div class="pills" id="pills"></div>
+    <div class="mode" id="mode">LIVE VIEW</div>
+  </header>
+
+  <main class="layout">
+    <div class="col">
+      <section class="panel" id="map-panel">
+        <div class="eyebrow">1 · MAP</div>
+        <h2>System map <span class="sub">what is connected to what, from the manifests</span></h2>
+        <div class="legend" id="legend"></div>
+        <svg id="graph" viewBox="0 0 640 330" role="img" aria-label="Service dependency graph"></svg>
+        <div class="node-card" id="node-card">Click a service to see what depends on it.</div>
+      </section>
+
+      <section class="panel" id="sim-panel">
+        <div class="eyebrow">3 · ATTACK <span class="tag warn">SIMULATION · no container is touched</span></div>
+        <h2>Attack simulator <span class="sub">replays real recorded runs, or a model where none exists</span></h2>
+        <div class="scenarios" id="scenarios"></div>
+        <div class="sim-controls">
+          <button id="btn-attack" class="btn attack">▶ Simulate attack</button>
+          <button id="btn-kill" class="btn kill" disabled>■ KILL SWITCH</button>
+          <div class="timer" id="timer">idle</div>
+        </div>
+        <div class="progress"><div id="progress-bar"></div></div>
+        <div class="rules" id="rules"></div>
+        <p class="fineprint" id="sim-note">Real runs are started only from the operator CLI with a typed approval. This page never controls containers.</p>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel" id="tele-panel">
+        <div class="eyebrow">2 · MEASURE</div>
+        <h2>Telemetry <span class="sub" id="tele-sub">last 5 minutes from the fleet workload</span></h2>
+        <div class="kpis" id="kpis"></div>
+        <div class="charts" id="charts"></div>
+      </section>
+
+      <section class="panel" id="feed-panel">
+        <h2>Event feed <span class="sub">what the control plane is doing, in order</span></h2>
+        <ol class="feed" id="feed"><li class="muted">Nothing yet. Pick a scenario and press “Simulate attack”.</li></ol>
+      </section>
+    </div>
+
+    <section class="panel wide" id="ai-panel">
+      <div class="eyebrow">4 · LEARN</div>
+      <h2>AI ranking <span class="sub">what to test next, what we found, and how resilient it was</span></h2>
+      <div class="tabs" id="tabs">
+        <button data-tab="next" class="on">Next experiments</button>
+        <button data-tab="findings">Ranked findings</button>
+        <button data-tab="score">Resilience score</button>
+      </div>
+      <div id="tab-body"></div>
+    </section>
+  </main>
+  <script src="/assets/lab.js"></script>
+</body>
+</html>

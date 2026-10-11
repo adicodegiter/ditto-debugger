@@ -3,166 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="dark">
   <title>Ditto Resilience Workbench</title>
   <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
+  <div class="supergraphic" aria-hidden="true"></div>
   <header class="topbar">
-    <a class="brand" href="#/overview" aria-label="Ditto Resilience Workbench home">
-      <span class="brand-mark" aria-hidden="true">D</span>
-      <span><strong>DITTO</strong><small>RESILIENCE WORKBENCH</small></span>
+    <a class="brand" href="#/overview" aria-label="Ditto Resilience Workbench, overview">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg></span>
+      <span class="brand-text"><strong>Ditto Resilience Workbench</strong><small>Chaos engineering for a connected-vehicle twin backend</small></span>
     </a>
     <nav class="tabs" aria-label="Sections">
       <a href="#/overview" data-view="overview">Overview</a>
-      <a href="#/architecture" data-view="architecture">Architecture</a>
+      <a href="#/architecture" data-view="architecture">System map</a>
       <a href="#/experiments" data-view="experiments">Experiments</a>
       <a href="#/runs" data-view="runs">Runs</a>
       <a href="#/safety" data-view="safety">Safety</a>
     </nav>
-    <div class="topbar-meta"><span id="live-dot" class="local-indicator"></span><span id="live-label">LOCAL ENVIRONMENT</span></div>
+    <div class="live-chip" id="live-chip"><i></i><span>Checking</span></div>
   </header>
 
-  <main>
-    <!-- ============================== OVERVIEW ============================== -->
-    <section class="view" id="view-overview">
-      <div class="page-heading">
-        <div><p class="eyebrow">BOSCH HACKATHON / CLOUD-NATIVE RESILIENCE</p><h1>System overview</h1></div>
-        <span id="overview-updated" class="quiet-count">Loading…</span>
-      </div>
+  <div class="safety-strip" role="note">
+    <span class="safety-strip-text" id="safety-strip-icon"></span>
+    <span><strong>This UI never executes.</strong> Faults run only from the operator CLI after a typed human approval.</span>
+    <code class="mono">POST …/execute → 503</code>
+  </div>
 
-      <div class="status-strip" aria-label="Workbench status">
-        <div><span class="status-label">TARGET</span><strong id="target-status">Checking</strong></div>
-        <div><span class="status-label">GRAPH SNAPSHOT</span><strong id="graph-version">Not loaded</strong></div>
-        <div><span class="status-label">LIVE SLI SAMPLES</span><strong id="sli-source">Checking</strong></div>
-        <div><span class="status-label">FAULT EXECUTION</span><strong id="execution-status" class="status-disabled">API never executes</strong></div>
-      </div>
-
-      <div class="metric-grid" aria-label="Live SLIs, last 30 seconds">
-        <article class="metric-card"><span class="metric-label">WRITE SUCCESS · 30 s</span><strong id="write-success">—</strong><small id="write-detail">No samples</small><svg class="spark" id="spark-write" aria-hidden="true"></svg></article>
-        <article class="metric-card"><span class="metric-label">WRITE P95 · 30 s</span><strong id="write-p95">—</strong><small id="write-p95-detail">No samples</small><svg class="spark" id="spark-p95" aria-hidden="true"></svg></article>
-        <article class="metric-card"><span class="metric-label">SEARCH SUCCESS · 30 s</span><strong id="search-success">—</strong><small id="search-detail">No samples</small><svg class="spark" id="spark-search" aria-hidden="true"></svg></article>
-        <article class="metric-card"><span class="metric-label">FRESHNESS P95 · 30 s</span><strong id="freshness-p95">—</strong><small id="freshness-detail">No samples</small><svg class="spark" id="spark-freshness" aria-hidden="true"></svg></article>
-      </div>
-      <p class="source-note">Measured client-side by <code>simulator/fleet_workload.py</code> into <code>data/metrics/*.jsonl</code>. Sparklines: last 5 minutes in 10 s buckets. Start the workload to see live values.</p>
-
-      <div class="two-col">
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">STEADY STATE</p><h2>Latest baseline</h2></div><a class="text-link" href="#/experiments">Experiments →</a></div>
-          <div id="overview-baseline"><p class="muted">No baseline captured yet.</p></div>
-        </section>
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">OBSERVED OUTCOME</p><h2>Latest run</h2></div><a class="text-link" href="#/runs">All runs →</a></div>
-          <div id="overview-run"><p class="muted">No runs recorded yet.</p></div>
-        </section>
-      </div>
-
-      <div class="safety-banner" aria-label="Safety controls">
-        <div><span class="safety-icon">!</span><div><strong>Safety gate active</strong><p>The API never executes faults. Approved experiments run only from the operator CLI, with a live kill switch, an independent watchdog and an approval typed by a human.</p></div></div>
-        <a class="state-tag state-disabled" href="#/safety">VIEW SAFETY</a>
-      </div>
-
-      <section class="agent-section">
-        <div class="section-heading"><div><p class="eyebrow">COORDINATED SPECIALISTS</p><h2>Agent status</h2></div></div>
-        <div id="agent-list" class="agent-list" aria-live="polite"></div>
-      </section>
-    </section>
-
-    <!-- ============================ ARCHITECTURE ============================ -->
-    <section class="view" id="view-architecture" hidden>
-      <div class="page-heading">
-        <div><p class="eyebrow">M1 · DISCOVERY EVIDENCE</p><h1>Architecture map</h1></div>
-        <button id="refresh-button" class="button button-secondary" type="button">Refresh discovery</button>
-      </div>
-      <div class="legend">
-        <span><i class="swatch configured"></i>configured (compose)</span>
-        <span><i class="swatch documented"></i>documented (Ditto architecture)</span>
-        <span><i class="swatch manual"></i>manual (workbench)</span>
-        <span id="node-count" class="quiet-count">0 components</span>
-      </div>
-      <div class="graph-frame">
-        <div id="graph-empty" class="empty-state">No dependency map yet. Run <code>python -m ai.dependency_map</code>.</div>
-        <svg id="architecture-graph" class="architecture-graph" role="img" aria-label="Dependency graph" hidden></svg>
-      </div>
-      <p class="source-note">Hover an edge for its provenance. From <code>ai/dependency_map.json</code>; no edge is claimed as runtime-observed.</p>
-      <div class="two-col">
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">WHO AFFECTS WHAT</p><h2>SLI request paths</h2></div></div>
-          <table class="data-table" id="sli-paths"></table>
-        </section>
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">COMPOSE</p><h2>Services</h2></div></div>
-          <table class="data-table" id="service-table"></table>
-        </section>
-      </div>
-    </section>
-
-    <!-- ============================= EXPERIMENTS ============================ -->
-    <section class="view" id="view-experiments" hidden>
-      <div class="page-heading"><div><p class="eyebrow">M2–M4 · BASELINE → PLAN → APPROVE</p><h1>Experiments</h1></div></div>
-
-      <div class="two-col">
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">STEP 1</p><h2>Baseline</h2></div>
-            <button id="baseline-button" class="button button-secondary" type="button">Capture baseline</button></div>
-          <p class="planner-copy">Built from the latest live workload run only. Needs at least 120 s of samples and every SLI healthy.</p>
-          <div id="baseline-message" class="notice" hidden></div>
-          <div id="baseline-list" class="activity-list"><p class="muted">No baselines yet.</p></div>
-        </section>
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">STEP 2</p><h2>Plan</h2></div></div>
-          <div class="planner-controls">
-            <label for="baseline-select">Baseline</label>
-            <select id="baseline-select"><option value="">Capture a baseline first</option></select>
-            <button id="plan-button" class="button button-primary" type="button">Plan experiments</button>
-          </div>
-          <div id="plan-results" class="plan-results" aria-live="polite"><p class="muted">Pick a baseline and plan.</p></div>
-        </section>
-      </div>
-
-      <section class="panel">
-        <div class="section-heading"><div><p class="eyebrow">STEP 3 · HUMAN DECISION</p><h2>Proposals</h2></div><span id="plan-count" class="quiet-count">0</span></div>
-        <p class="planner-copy">Approving records an immutable, single-use human decision that expires. It does not execute anything; run the commands shown on approved proposals from the operator terminal.</p>
-        <div id="plan-history" class="activity-list" aria-live="polite"><p class="muted">No plans saved yet.</p></div>
-      </section>
-    </section>
-
-    <!-- ================================ RUNS =============================== -->
-    <section class="view" id="view-runs" hidden>
-      <div class="page-heading"><div><p class="eyebrow">M4 · OBSERVED OUTCOMES</p><h1>Runs</h1></div><span id="run-count" class="quiet-count">0</span></div>
-      <div class="runs-layout">
-        <div id="run-list" class="run-list"><p class="muted">No runs recorded yet.</p></div>
-        <div id="run-detail" class="panel run-detail"><p class="muted">Loading…</p></div>
-      </div>
-    </section>
-
-    <!-- =============================== SAFETY ============================== -->
-    <section class="view" id="view-safety" hidden>
-      <div class="page-heading"><div><p class="eyebrow">M3 · DETERMINISTIC CONTROL PLANE</p><h1>Safety</h1></div></div>
-      <div class="two-col">
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">configs/experiment-policy.yaml</p><h2>Policy and limits</h2></div></div>
-          <div id="policy-view"><p class="muted">Loading…</p></div>
-        </section>
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">KILL SWITCH</p><h2>Abort thresholds</h2></div></div>
-          <div id="threshold-view"><p class="muted">Loading…</p></div>
-        </section>
-      </div>
-      <div class="two-col">
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">INDEPENDENT PROCESS</p><h2>Watchdog log</h2></div></div>
-          <div id="watchdog-list" class="activity-list"><p class="muted">No watchdog events.</p></div>
-        </section>
-        <section class="panel">
-          <div class="section-heading"><div><p class="eyebrow">EVERY STEP RECORDED</p><h2>Audit trail</h2></div><span id="audit-count" class="quiet-count">0</span></div>
-          <div id="audit-list" class="activity-list"><p class="muted">No audit events.</p></div>
-        </section>
-      </div>
-    </section>
-
-    <footer><span>Local only · 127.0.0.1</span><span>The API never executes faults</span></footer>
+  <main id="main">
+    <section class="view" id="view-overview" aria-labelledby="h-overview"><div class="page-head"><div><p class="eyebrow">Loading from the local API…</p><h1 id="h-overview">System overview</h1></div></div></section>
+    <section class="view" id="view-architecture" aria-labelledby="h-architecture" hidden></section>
+    <section class="view" id="view-experiments" aria-labelledby="h-experiments" hidden></section>
+    <section class="view" id="view-runs" aria-labelledby="h-runs" hidden></section>
+    <section class="view" id="view-safety" aria-labelledby="h-safety" hidden></section>
   </main>
+
+  <footer class="footer">
+    <span>Local only · API 127.0.0.1:8000 · Ditto 127.0.0.1:8080</span>
+    <span id="footer-updated"></span>
+  </footer>
+
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title">
+    <div class="drawer-head"><h2 id="drawer-title">Component</h2><button class="icon-button" type="button" id="drawer-close" aria-label="Close panel"></button></div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
 
   <dialog id="approve-dialog" aria-labelledby="approve-title">
     <form method="dialog" id="approve-form">
@@ -170,10 +54,10 @@
       <div id="approve-summary" class="approve-summary"></div>
       <label>Your name<input id="approve-by" required maxlength="80" autocomplete="name"></label>
       <label>Reason<input id="approve-reason" required maxlength="400" autocomplete="off"></label>
-      <label id="approve-confirm-label"><span>Type <code id="approve-word">APPROVE</code> to confirm</span><input id="approve-confirm" required autocomplete="off" spellcheck="false"></label>
+      <label><span>Type <code id="approve-word">APPROVE</code> to confirm</span><input id="approve-confirm" required autocomplete="off" spellcheck="false"></label>
       <p id="approve-error" class="form-error" hidden></p>
       <div class="dialog-actions">
-        <button class="button button-secondary" value="cancel" formnovalidate type="submit">Cancel</button>
+        <button class="button" value="cancel" formnovalidate type="submit">Cancel</button>
         <button class="button button-primary" id="approve-submit" value="confirm" type="submit">Record decision</button>
       </div>
     </form>
