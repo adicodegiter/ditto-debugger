@@ -178,6 +178,10 @@ def _overall_improvement(before: dict[str, Any], after: dict[str, Any], wait_bef
     rate_after = _first_number(after, ("write_samples_per_second",))
     if rate_before is None or rate_after is None:
         return "not demonstrated"
+    errors_after = _reported(after).get("search_failure_errors") or after.get("search_failure_errors") or []
+    # Server-side fail-fast: every failure is an explicit HTTP 5xx answer, and failures end sooner.
+    if errors_after and wait_after < wait_before and all(str(error).isdigit() and str(error).startswith("5") for error in errors_after):
+        return "server-side fail-fast demonstrated"
     client_side = wait_after < wait_before and rate_after >= rate_before
     errors_after = _reported(after).get("search_failure_errors") or after.get("search_failure_errors") or []
     still_timeouts = bool(errors_after) and all("Timeout" in str(error) for error in errors_after)

@@ -1,0 +1,444 @@
+{
+  "action_params": {
+    "duration_seconds": 30
+  },
+  "action_state": {},
+  "baseline_valid": true,
+  "baseline_write_p95_ms": 55.832,
+  "cleanup_state": "complete",
+  "created_at": "2026-10-10T23:49:18.379456+00:00",
+  "deployment": {
+    "checked_at": "2026-10-10T23:49:18.058569+00:00",
+    "remediations_active": []
+  },
+  "diagnosis": {
+    "action": "pause_container",
+    "comparison": {
+      "freshness": {
+        "error_rate": 0.0,
+        "observed": "hold",
+        "p95_ms": null,
+        "predicted": "hold",
+        "verdict": "match"
+      },
+      "search": {
+        "error_rate": 1.0,
+        "observed": "fail",
+        "p95_ms": null,
+        "predicted": "fail",
+        "verdict": "match"
+      },
+      "write": {
+        "error_rate": 0.0,
+        "observed": "hold",
+        "p95_ms": 44.908,
+        "predicted": "hold",
+        "verdict": "match"
+      }
+    },
+    "created_at": "2026-10-10T23:50:12.282918+00:00",
+    "diagnosis_id": "diag-run-68b41cfba584",
+    "evidence_use": "experiment",
+    "experiment_id": "pause_container-things-search-00c233aac64950b7",
+    "flags": [],
+    "kill_switch": {
+      "forced_test": false,
+      "tripped": false
+    },
+    "prediction_accuracy": 1.0,
+    "recovered": true,
+    "recovery_s": 23.034,
+    "recovery_seconds": 23.034,
+    "recovery_status": "recovered",
+    "run_id": "run-68b41cfba584",
+    "schema_version": "1.0",
+    "summary": "things-search pause_container: prediction matched on 3 of 3 measured SLIs. Recovery: 23.034s.",
+    "target_component": "things-search",
+    "warnings": []
+  },
+  "experiment_id": "pause_container-things-search-00c233aac64950b7",
+  "findings": [
+    {
+      "ai_generated": false,
+      "confidence": 0.95,
+      "evidence": [
+        "run:run-68b41cfba584",
+        "recovery:things-search",
+        "observation_count:16",
+        "degraded_observations:13"
+      ],
+      "id": "run-68b41cfba584-availability",
+      "recommendation": "Investigate the affected dependency and add an availability budget or timeout protection before increasing fault duration.",
+      "run_id": "run-68b41cfba584",
+      "schema_version": "1.0",
+      "severity": "medium",
+      "summary": "The approved experiment caused measurable client-side availability degradation."
+    }
+  ],
+  "history_outcome": "no_failure_observed",
+  "observations": [
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.05585,
+      "freshness_samples": 57,
+      "phase": "pre_fault",
+      "search_error_rate": 0.0,
+      "search_samples": 57,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:18.553195+00:00",
+      "window_start": "2026-10-10T23:48:48.553195+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.152,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.05585,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.0,
+      "search_samples": 53,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:20.740034+00:00",
+      "window_start": "2026-10-10T23:48:50.740034+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.152,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.02,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.05585,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.02,
+      "search_samples": 50,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:22.872285+00:00",
+      "window_start": "2026-10-10T23:48:52.872285+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.152,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.021739130434782608,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.053431,
+      "freshness_samples": 58,
+      "phase": "fault",
+      "search_error_rate": 0.021739130434782608,
+      "search_samples": 46,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:25.022193+00:00",
+      "window_start": "2026-10-10T23:48:55.022193+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 36.064,
+      "write_samples": 58
+    },
+    {
+      "error_rate": 0.046511627906976744,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.053431,
+      "freshness_samples": 58,
+      "phase": "fault",
+      "search_error_rate": 0.046511627906976744,
+      "search_samples": 43,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:27.152717+00:00",
+      "window_start": "2026-10-10T23:48:57.152717+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 36.064,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.07692307692307693,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.053431,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.07692307692307693,
+      "search_samples": 39,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:29.314491+00:00",
+      "window_start": "2026-10-10T23:48:59.314491+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.152,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.08571428571428572,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.053431,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.08571428571428572,
+      "search_samples": 35,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:31.464716+00:00",
+      "window_start": "2026-10-10T23:49:01.464716+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.152,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.125,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.036759,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.125,
+      "search_samples": 32,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:33.631615+00:00",
+      "window_start": "2026-10-10T23:49:03.631615+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 30.487,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.14285714285714285,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.032625,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.14285714285714285,
+      "search_samples": 28,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:35.789460+00:00",
+      "window_start": "2026-10-10T23:49:05.789460+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 30.487,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.2,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.035696,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.2,
+      "search_samples": 25,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:37.930328+00:00",
+      "window_start": "2026-10-10T23:49:07.930328+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 31.363,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.2727272727272727,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.040719,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.2727272727272727,
+      "search_samples": 22,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:40.094873+00:00",
+      "window_start": "2026-10-10T23:49:10.094873+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 41.712,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.3333333333333333,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.040719,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.3333333333333333,
+      "search_samples": 18,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:42.269784+00:00",
+      "window_start": "2026-10-10T23:49:12.269784+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 41.712,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.4666666666666667,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.047141,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.4666666666666667,
+      "search_samples": 15,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:44.602051+00:00",
+      "window_start": "2026-10-10T23:49:14.602051+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 44.908,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.6666666666666666,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.047141,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.6666666666666666,
+      "search_samples": 12,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:46.760010+00:00",
+      "window_start": "2026-10-10T23:49:16.760010+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 44.908,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 1.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.047141,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 1.0,
+      "search_samples": 8,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:49:48.649396+00:00",
+      "window_start": "2026-10-10T23:49:18.649396+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 44.908,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.037658,
+      "freshness_samples": 44,
+      "phase": "recovered",
+      "search_error_rate": 0.0,
+      "search_samples": 43,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:50:12.079388+00:00",
+      "window_start": "2026-10-10T23:49:49.249321+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 35.073,
+      "write_samples": 44
+    }
+  ],
+  "prediction": {
+    "predicted_impacts": [
+      "things-search"
+    ],
+    "predicted_slis": {
+      "freshness": "hold",
+      "search": "fail",
+      "write": "hold"
+    }
+  },
+  "recovery": {
+    "canary": true,
+    "canary_path": "/api/2/search/things?option=size(1)",
+    "canary_status": 200,
+    "health_status": 200,
+    "healthy": true,
+    "sli_reason": null,
+    "slis_within_baseline": true,
+    "target": "things-search"
+  },
+  "recovery_time_seconds": 23.034,
+  "recovery_verified": true,
+  "resilience_score": {
+    "components": {
+      "availability": 0.0,
+      "containment": 1.0,
+      "detection": 1.0,
+      "latency": 1.0,
+      "recovery": 0.8720333333333333
+    },
+    "coverage": 1.0,
+    "score": 67.44,
+    "status": "complete"
+  },
+  "run_id": "run-68b41cfba584",
+  "safety_violation": false,
+  "schema_version": "1.0",
+  "score_components": {
+    "availability": 0.0,
+    "containment": 1.0,
+    "detection": 1.0,
+    "latency": 1.0,
+    "recovery": 0.8720333333333333
+  },
+  "score_inputs": {
+    "availability": {
+      "rule": "1 - max(worst write error rate, worst search error rate) over fault windows",
+      "worst_search_error_rate": 1.0,
+      "worst_write_error_rate": 0.0
+    },
+    "containment": {
+      "all_healthy": true,
+      "rule": "1 if every checked fault window kept unrelated components healthy, else 0",
+      "windows_checked": 14
+    },
+    "detection": {
+      "rule": "1.0 for a completed run, 0.5 when the kill switch aborted it",
+      "status": "completed"
+    },
+    "fault_windows": 14,
+    "latency": {
+      "baseline_write_p95_ms": 55.832,
+      "rule": "baseline write p95 / worst write p95 during fault, capped at 1",
+      "worst_write_p95_ms": 44.908
+    },
+    "recovery": {
+      "budget_seconds": 180.0,
+      "recovery_time_seconds": 23.034,
+      "rule": "1 - recovery time after rollback / recovery budget"
+    },
+    "score_version": "1.0",
+    "weights": {
+      "availability": 0.3,
+      "containment": 0.15,
+      "detection": 0.15,
+      "latency": 0.2,
+      "recovery": 0.2
+    }
+  },
+  "status": "completed",
+  "timeline": {
+    "action_completed_at": "2026-10-10T23:49:18.734363+00:00",
+    "created_at": "2026-10-10T23:49:18.379456+00:00",
+    "injected_at": "2026-10-10T23:49:18.644085+00:00",
+    "recovered_at": "2026-10-10T23:50:12.275079+00:00",
+    "rollback_at": "2026-10-10T23:49:49.249275+00:00"
+  },
+  "watchdog": {
+    "armed": false,
+    "deadline": "2026-10-10T23:50:03.642452+00:00"
+  }
+}

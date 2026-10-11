@@ -11,6 +11,7 @@ from .store import LocalRepository
 from safety.policy import Policy
 from safety.runner import RunnerError
 from monitor.window import baseline_from_metrics
+from ai.compound import compose_compound, interaction_effect, interaction_finding, suggest_pairs
 from ai.diagnosis import diagnose, history_outcome
 from ai.explain import explain_findings
 from ai.ranking import rank_findings
@@ -64,6 +65,31 @@ class AgentOrchestrator:
         plan = self.planning_agent.plan(graph, telemetry, baseline, max_candidates)
         return self.repository.save_plan(plan)
 
+    def compose_compound(self, first_id: str, second_id: str, stagger_seconds: int) -> dict[str, Any]:
+        """Combine two planned single-fault experiments into one immutable compound candidate.
+
+        Deterministic and non-executing: the candidate is policy-validated, stored as its own
+        plan, and still needs a typed human approval like any other experiment.
+        """
+        first, second = self.repository.get_experiment(first_id), self.repository.get_experiment(second_id)
+        if first is None or second is None:
+            raise LookupError("Both experiments must exist in a stored plan.")
+        candidate = compose_compound(first, second, stagger_seconds)
+        self.policy.validate_compound(candidate)  # raises SafetyViolation for a forbidden combination
+        digest = candidate["id"].removeprefix("compound-")
+        return self.repository.save_plan({
+            "schema_version": "1.0",
+            "plan_id": f"plan-compound-{digest}",
+            "ranking_method": candidate["ranking_method"],
+            "candidates": [candidate],
+            "policy_rejections": [],
+            "execution_enabled": False,
+        })
+
+    def suggest_compounds(self, baseline_id: str, stagger_seconds: int = 10) -> list[dict[str, Any]]:
+        plan = self.plan_experiments(baseline_id, 10)
+        return suggest_pairs(plan["candidates"], self.policy.compound.allowed_pairs, stagger_seconds)
+
     def list_plans(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.repository.list_plans(limit)
 
@@ -111,10 +137,19 @@ class AgentOrchestrator:
         if candidate is not None:
             run["diagnosis"] = self.diagnose_run(run, candidate, baseline)
             outcome = history_outcome(run["diagnosis"])  # None for forced tests / dry runs / gaps
+            if candidate.get("kind") == "compound":
+                outcome = None  # planner history is per single target/action
             if outcome is not None:
                 self.repository.record_outcome(candidate["target_component"], candidate["action"], outcome, f"run:{run['run_id']}")
             run["history_outcome"] = outcome
-        findings = explain_findings(generate_findings(run), run)  # no-op unless AI_PROVIDER=groq
+        findings = generate_findings(run)
+        if run.get("kind") == "compound" and not run.get("dry_run") and not run.get("forced_test"):
+            solo = [item for item in self.repository.list_runs(500) if item.get("kind") != "compound"]
+            run["interaction"] = interaction_effect(run, solo)
+            extra = interaction_finding(run, run["interaction"])
+            if extra is not None:
+                findings.append(extra)
+        findings = explain_findings(findings, run)  # no-op unless AI_PROVIDER=groq
         self.repository.save_run(run)
         self.repository.save_findings(run["run_id"], findings)
         return findings

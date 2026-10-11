@@ -1,0 +1,37 @@
+# Fix registry for the "re-run after applying a fix" loop (docs/rerun-after-fix.md).
+# A fix is judged only by the criteria listed here, on a before/after pair of real runs of the
+# SAME experiment. deploy/remediate.py can only apply overlays named in this file.
+version: 1
+remediations:
+  # Day 2 task 5.7, already merged (PR #8). Client side: changes the probe, not Ditto.
+  search-client-timeout:
+    kind: client
+    addresses: "A failing search hung the probe for 10 s and stalled the other probes."
+    change: "Workload search timeout 10 s -> 3 s; write, search and freshness probes run concurrently."
+    validate_with: {action: restart_container, target: things-search}
+    evidence: {before: run-c8b30b07c9f3, after: run-a09cb1bcbb7c}
+    success:
+      search_failure_wait_seconds_max: 3.5
+    guards:
+      write_error_rate_increase_max: 0.02
+      recovery_verified: true
+
+  # Server side: addresses the open weakness in docs/findings-report.md,
+  # "search does not fail fast while things-search is unavailable".
+  search-fail-fast:
+    kind: server
+    addresses: "While things-search is unavailable the gateway holds searches, so every failure is a client timeout."
+    change: "nginx answers a search that takes longer than 1.5 s with an explicit 504 and Retry-After: 2. Writes are untouched."
+    service: nginx
+    overlay: deploy/remediations/search-fail-fast/compose.override.yml
+    marker: "remediation: search-fail-fast"
+    validate_with: {action: pause_container, target: things-search}
+    success:
+      # Failing searches must end server-side (HTTP 504), fast, instead of as client timeouts.
+      search_failure_wait_seconds_max: 2.0
+      failure_status_codes: [504]
+    guards:
+      # The fix must not make anything else worse.
+      write_error_rate_increase_max: 0.02
+      write_p95_ratio_max: 1.5
+      recovery_verified: true

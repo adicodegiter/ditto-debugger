@@ -257,6 +257,39 @@ labelled and never scored.
   [docs/dashboard-check.md](docs/dashboard-check.md).
 - **Demo video (3 min or less):** _link to be added_.
 
+## Stretch goals
+
+| Stretch goal | Status (live, Mac stack, 2026-10-11) | Details |
+|---|---|---|
+| Re-run after a fix | **Verified.** Server-side fix `search-fail-fast`: during a 30 s `things-search` pause, failing searches became HTTP 504 after 1.5 s instead of client timeouts after 3.0 s; writes unaffected | [docs/rerun-after-fix.md](docs/rerun-after-fix.md) |
+| Live dashboard | Done: dashboard and API read the run store | [Dashboard](#dashboard), [docs/dashboard-check.md](docs/dashboard-check.md) |
+| Combined failures | **Run live.** Traffic burst on nginx, then `things-search` paused 10 s later, in one approved plan; both faults rolled back and recovered; verdict `no_interaction` at about 24 req/s | [docs/combined-failures.md](docs/combined-failures.md) |
+
+**Re-run after a fix.** `docs/findings-report.md` names a weakness: search does not fail fast while `things-search` is
+down. The fix makes nginx answer a stuck search with HTTP 504 and `Retry-After` after 1.5 s. Every run records which
+fixes were live (read from the running nginx), and `python -m ai.remediation verify` judges a before/after pair of the
+same experiment on conditions, success criteria and no-regression guards: `verified`, `not_verified` or `inconclusive`.
+
+```bash
+python deploy/remediate.py apply search-fail-fast     # recreates only nginx; refuses during an experiment
+python -m ai.remediation verify search-fail-fast --before BEFORE_RUN.json --after AFTER_RUN.json
+python deploy/remediate.py revert search-fail-fast
+python -m ai.remediation verify search-client-timeout --evidence   # the 5.7 client fix, from committed records
+```
+
+**Combined failures.** Two staged faults sit in one approved, immutable plan with one kill switch. Each fault is
+rolled back at its own end, an abort rolls back everything in reverse order, and every target must recover. The run is
+then compared with solo runs of the same faults: `amplified`, `dampened`, `no_interaction`, or `inconclusive` without
+solo runs (never a guess).
+
+```bash
+python -m safety.cli suggest-compound BASELINE_ID
+python -m safety.cli compose BURST_ID PAUSE_ID --stagger 10
+python -m safety.cli approve COMPOUND_ID --by NAME --reason TEXT
+python -m safety.cli execute COMPOUND_ID --dry-run
+python -m ai.compound COMPOUND_RUN.json BURST_RUN.json PAUSE_RUN.json
+```
+
 ## Optional: Groq for finding text (Agent 3)
 
 The findings are deterministic and work with no key. To have Groq rewrite each finding's summary and recommendation:

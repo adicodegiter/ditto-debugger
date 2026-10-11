@@ -6,6 +6,8 @@ changes a container.
 
     python -m safety.cli baseline                       # capture a baseline from live SLI samples
     python -m safety.cli plan BASELINE_ID               # ranked candidates from the planner
+    python -m safety.cli suggest-compound BASELINE_ID   # policy-allowed pairs of planned faults, ranked
+    python -m safety.cli compose FIRST_ID SECOND_ID --stagger 10   # one combined-failure plan (not executed)
     python -m safety.cli approve EXPERIMENT_ID --by NAME --reason TEXT   # interactive: type APPROVE
     python -m safety.cli execute EXPERIMENT_ID --dry-run
     CHAOS_EXECUTION_ENABLED=true python -m safety.cli execute EXPERIMENT_ID
@@ -105,6 +107,33 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0 if plan["candidates"] else 1
 
 
+def cmd_suggest_compound(args: argparse.Namespace) -> int:
+    orchestrator = _orchestrator()
+    try:
+        suggestions = orchestrator.suggest_compounds(args.baseline_id, args.stagger)
+    except (LookupError, ValueError) as error:
+        print(f"Refused: {error}", file=sys.stderr)
+        return 2
+    for index, item in enumerate(suggestions, 1):
+        print(f"{index}. compose {item['first']} {item['second']} --stagger {item['stagger_seconds']}")
+        print(f"   expectation={item['expectation']}  combined risk={item['risk_score']}")
+        print(f"   {item['reason']}")
+    return 0 if suggestions else 1
+
+
+def cmd_compose(args: argparse.Namespace) -> int:
+    orchestrator = _orchestrator()
+    try:
+        plan = orchestrator.compose_compound(args.first_id, args.second_id, args.stagger)
+    except (LookupError, ValueError) as error:  # SafetyViolation is a ValueError
+        print(f"Refused: {error}", file=sys.stderr)
+        return 2
+    candidate = plan["candidates"][0]
+    print(json.dumps({key: candidate[key] for key in ("id", "faults", "duration_seconds", "risk_score", "predicted_slis", "predicted_interaction")}, indent=2))
+    print(f"Next: python -m safety.cli approve {candidate['id']} --by NAME --reason TEXT", file=sys.stderr)
+    return 0
+
+
 def cmd_approve(args: argparse.Namespace) -> int:
     orchestrator = _orchestrator()
     experiment = orchestrator.get_experiment(args.experiment_id)
@@ -113,6 +142,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
         return 2
     print(f"Target    : {experiment['target_component']}")
     print(f"Action    : {experiment['action']} for {experiment['duration_seconds']} s")
+    for fault in experiment.get("faults", []):
+        print(f"  fault   : {fault['action']} on {fault['target_component']} at +{fault['start_offset_seconds']} s for {fault['duration_seconds']} s")
     print(f"Hypothesis: {experiment['hypothesis']}")
     print(f"Predicted : {experiment.get('predicted_slis', experiment['predicted_impacts'])}")
     print(f"Hash      : {experiment['candidate_hash']}")
@@ -134,6 +165,21 @@ def cmd_approve(args: argparse.Namespace) -> int:
     return 0
 
 
+def deployment_state() -> dict[str, Any]:
+    """Which registered fixes (configs/remediations.yaml) are live in the running containers.
+
+    Read-only (`nginx -T`). Recorded on every run so a before/after pair can prove the fix was
+    off before and on after; an unreadable state is recorded as unknown, never as "no fix".
+    """
+    from datetime import datetime, timezone
+    checked_at = datetime.now(timezone.utc).isoformat()
+    try:
+        from deploy.remediate import active_remediations
+        return {"remediations_active": active_remediations(), "checked_at": checked_at}
+    except Exception as error:  # noqa: BLE001 - unknown, not "none"
+        return {"remediations_active": None, "checked_at": checked_at, "error": type(error).__name__}
+
+
 def cmd_execute(args: argparse.Namespace) -> int:
     settings = Settings.from_environment()
     if not args.dry_run and not settings.execution_enabled:
@@ -143,7 +189,9 @@ def cmd_execute(args: argparse.Namespace) -> int:
     try:
         candidate, approval, baseline = orchestrator.prepare_execution(args.experiment_id)
         runner, docker = build_runner(settings, orchestrator, args.dry_run)
+        deployment = deployment_state()
         run = runner.execute(candidate, approval, baseline, forced_test=args.forced_test, dry_run=args.dry_run)
+        run["deployment"] = deployment
     except (LookupError, RunnerError, SafetyViolation) as error:
         print(f"Refused: {error}", file=sys.stderr)
         return 2
@@ -175,6 +223,17 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("baseline_id")
     plan.add_argument("--max-candidates", type=int, default=6)
     plan.set_defaults(handler=cmd_plan)
+
+    suggest = sub.add_parser("suggest-compound", help="rank policy-allowed pairs of planned faults for a combined failure")
+    suggest.add_argument("baseline_id")
+    suggest.add_argument("--stagger", type=int, default=10, help="seconds between the first and second fault starting")
+    suggest.set_defaults(handler=cmd_suggest_compound)
+
+    compose = sub.add_parser("compose", help="combine two planned experiments into one immutable combined-failure plan (does not execute)")
+    compose.add_argument("first_id", help="starts at t=0 (put the entry-point load here)")
+    compose.add_argument("second_id", help="starts after --stagger seconds")
+    compose.add_argument("--stagger", type=int, default=10)
+    compose.set_defaults(handler=cmd_compose)
 
     approve = sub.add_parser("approve", help="record a human approval for one immutable candidate")
     approve.add_argument("experiment_id")

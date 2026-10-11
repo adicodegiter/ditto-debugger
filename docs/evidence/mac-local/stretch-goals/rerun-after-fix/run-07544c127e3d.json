@@ -1,0 +1,465 @@
+{
+  "action_params": {
+    "duration_seconds": 30
+  },
+  "action_state": {},
+  "baseline_valid": true,
+  "baseline_write_p95_ms": 37.736,
+  "cleanup_state": "complete",
+  "created_at": "2026-10-10T23:56:49.284852+00:00",
+  "deployment": {
+    "checked_at": "2026-10-10T23:56:48.924413+00:00",
+    "remediations_active": [
+      "search-fail-fast"
+    ]
+  },
+  "diagnosis": {
+    "action": "pause_container",
+    "comparison": {
+      "freshness": {
+        "error_rate": 0.0,
+        "observed": "degrade",
+        "p95_ms": null,
+        "predicted": "hold",
+        "verdict": "worse_than_predicted"
+      },
+      "search": {
+        "error_rate": 1.0,
+        "observed": "fail",
+        "p95_ms": null,
+        "predicted": "fail",
+        "verdict": "match"
+      },
+      "write": {
+        "error_rate": 0.0,
+        "observed": "degrade",
+        "p95_ms": 61.281,
+        "predicted": "hold",
+        "verdict": "worse_than_predicted"
+      }
+    },
+    "created_at": "2026-10-10T23:57:43.088398+00:00",
+    "diagnosis_id": "diag-run-07544c127e3d",
+    "evidence_use": "experiment",
+    "experiment_id": "pause_container-things-search-4524555e74d84442",
+    "flags": [
+      "worse_than_predicted"
+    ],
+    "kill_switch": {
+      "forced_test": false,
+      "tripped": false
+    },
+    "prediction_accuracy": 0.33,
+    "recovered": true,
+    "recovery_s": 22.827,
+    "recovery_seconds": 22.827,
+    "recovery_status": "recovered",
+    "run_id": "run-07544c127e3d",
+    "schema_version": "1.0",
+    "summary": "things-search pause_container: prediction matched on 1 of 3 measured SLIs. Recovery: 22.827s.",
+    "target_component": "things-search",
+    "warnings": []
+  },
+  "experiment_id": "pause_container-things-search-4524555e74d84442",
+  "findings": [
+    {
+      "ai_generated": false,
+      "confidence": 0.95,
+      "evidence": [
+        "run:run-07544c127e3d",
+        "recovery:things-search",
+        "observation_count:16",
+        "degraded_observations:14"
+      ],
+      "id": "run-07544c127e3d-availability",
+      "recommendation": "Investigate the affected dependency and add an availability budget or timeout protection before increasing fault duration.",
+      "run_id": "run-07544c127e3d",
+      "schema_version": "1.0",
+      "severity": "medium",
+      "summary": "The approved experiment caused measurable client-side availability degradation."
+    },
+    {
+      "ai_generated": false,
+      "confidence": 0.9,
+      "evidence": [
+        "run:run-07544c127e3d",
+        "recovery:things-search",
+        "diagnosis:diag-run-07544c127e3d",
+        "write:degrade",
+        "freshness:degrade"
+      ],
+      "id": "run-07544c127e3d-worse-than-predicted",
+      "recommendation": "Treat this as an unexpected coupling: check timeouts, retries and resource limits on the affected path before widening fault scope.",
+      "run_id": "run-07544c127e3d",
+      "schema_version": "1.0",
+      "severity": "high",
+      "summary": "Impact was worse than predicted on: write (predicted hold, observed degrade), freshness (predicted hold, observed degrade)."
+    }
+  ],
+  "history_outcome": "failure_observed",
+  "observations": [
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "pre_fault",
+      "search_error_rate": 0.0,
+      "search_samples": 57,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:56:49.460965+00:00",
+      "window_start": "2026-10-10T23:56:19.460965+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.018518518518518517,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.018518518518518517,
+      "search_samples": 54,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:56:51.698906+00:00",
+      "window_start": "2026-10-10T23:56:21.698906+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.04,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.04,
+      "search_samples": 50,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:56:53.849520+00:00",
+      "window_start": "2026-10-10T23:56:23.849520+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.06382978723404255,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.06382978723404255,
+      "search_samples": 47,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:56:56.011323+00:00",
+      "window_start": "2026-10-10T23:56:26.011323+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.09090909090909091,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.09090909090909091,
+      "search_samples": 44,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:56:58.144648+00:00",
+      "window_start": "2026-10-10T23:56:28.144648+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.12195121951219512,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.12195121951219512,
+      "search_samples": 41,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:00.294008+00:00",
+      "window_start": "2026-10-10T23:56:30.294008+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.15789473684210525,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.15789473684210525,
+      "search_samples": 38,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:02.450300+00:00",
+      "window_start": "2026-10-10T23:56:32.450300+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.2,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.2,
+      "search_samples": 35,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:04.603256+00:00",
+      "window_start": "2026-10-10T23:56:34.603256+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.25,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.25,
+      "search_samples": 32,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:06.761216+00:00",
+      "window_start": "2026-10-10T23:56:36.761216+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.3103448275862069,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.3103448275862069,
+      "search_samples": 29,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:08.932532+00:00",
+      "window_start": "2026-10-10T23:56:38.932532+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.38461538461538464,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.38461538461538464,
+      "search_samples": 26,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:11.105824+00:00",
+      "window_start": "2026-10-10T23:56:41.105824+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 61.281,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.4782608695652174,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.078086,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.4782608695652174,
+      "search_samples": 23,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:13.250041+00:00",
+      "window_start": "2026-10-10T23:56:43.250041+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 50.683,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.6,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.049721,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.6,
+      "search_samples": 20,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:15.419878+00:00",
+      "window_start": "2026-10-10T23:56:45.419878+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 35.682,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.7777777777777778,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.035016,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.7777777777777778,
+      "search_samples": 18,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:17.581120+00:00",
+      "window_start": "2026-10-10T23:56:47.581120+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 29.063,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 1.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.036236,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 1.0,
+      "search_samples": 15,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:19.613119+00:00",
+      "window_start": "2026-10-10T23:56:49.613119+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 30.276,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.044333,
+      "freshness_samples": 44,
+      "phase": "recovered",
+      "search_error_rate": 0.0,
+      "search_samples": 43,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-10T23:57:42.890990+00:00",
+      "window_start": "2026-10-10T23:57:20.253889+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 40.163,
+      "write_samples": 44
+    }
+  ],
+  "prediction": {
+    "predicted_impacts": [
+      "things-search"
+    ],
+    "predicted_slis": {
+      "freshness": "hold",
+      "search": "fail",
+      "write": "hold"
+    }
+  },
+  "recovery": {
+    "canary": true,
+    "canary_path": "/api/2/search/things?option=size(1)",
+    "canary_status": 200,
+    "health_status": 200,
+    "healthy": true,
+    "sli_reason": null,
+    "slis_within_baseline": true,
+    "target": "things-search"
+  },
+  "recovery_time_seconds": 22.827,
+  "recovery_verified": true,
+  "resilience_score": {
+    "components": {
+      "availability": 0.0,
+      "containment": 1.0,
+      "detection": 1.0,
+      "latency": 0.6157862959155366,
+      "recovery": 0.8731833333333333
+    },
+    "coverage": 1.0,
+    "score": 59.78,
+    "status": "complete"
+  },
+  "run_id": "run-07544c127e3d",
+  "safety_violation": false,
+  "schema_version": "1.0",
+  "score_components": {
+    "availability": 0.0,
+    "containment": 1.0,
+    "detection": 1.0,
+    "latency": 0.6157862959155366,
+    "recovery": 0.8731833333333333
+  },
+  "score_inputs": {
+    "availability": {
+      "rule": "1 - max(worst write error rate, worst search error rate) over fault windows",
+      "worst_search_error_rate": 1.0,
+      "worst_write_error_rate": 0.0
+    },
+    "containment": {
+      "all_healthy": true,
+      "rule": "1 if every checked fault window kept unrelated components healthy, else 0",
+      "windows_checked": 14
+    },
+    "detection": {
+      "rule": "1.0 for a completed run, 0.5 when the kill switch aborted it",
+      "status": "completed"
+    },
+    "fault_windows": 14,
+    "latency": {
+      "baseline_write_p95_ms": 37.736,
+      "rule": "baseline write p95 / worst write p95 during fault, capped at 1",
+      "worst_write_p95_ms": 61.281
+    },
+    "recovery": {
+      "budget_seconds": 180.0,
+      "recovery_time_seconds": 22.827,
+      "rule": "1 - recovery time after rollback / recovery budget"
+    },
+    "score_version": "1.0",
+    "weights": {
+      "availability": 0.3,
+      "containment": 0.15,
+      "detection": 0.15,
+      "latency": 0.2,
+      "recovery": 0.2
+    }
+  },
+  "status": "completed",
+  "timeline": {
+    "action_completed_at": "2026-10-10T23:56:49.693579+00:00",
+    "created_at": "2026-10-10T23:56:49.284852+00:00",
+    "injected_at": "2026-10-10T23:56:49.607848+00:00",
+    "recovered_at": "2026-10-10T23:57:43.081281+00:00",
+    "rollback_at": "2026-10-10T23:57:20.253822+00:00"
+  },
+  "watchdog": {
+    "armed": false,
+    "deadline": "2026-10-10T23:57:34.606283+00:00"
+  }
+}
