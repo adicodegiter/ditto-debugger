@@ -43,7 +43,8 @@ Checked on the Windows host with the API on `127.0.0.1:8001` (LangGraph 1.2.12 i
 running:
 
 - **Experiments → Agent graph:** with a workload run under 120 s old, **Run agent graph** stopped at `measure`
-  after two attempts with the baseline refusal reason; with a fresh stored baseline it went discover → measure →
+  after two attempts with the baseline refusal reason (this check predates the reuse-then-capture split of the two
+  attempts); with a fresh stored baseline it went discover → measure →
   plan and showed "Paused before approval". **Resume at approval** showed each candidate as `pending` with "record a
   typed approval first". No console errors; `POST …/execute` still returned 503; no horizontal scroll at 375 px.
 - **Runs:** after a typed approval in the dashboard, the operator CLI ran a 10 s `things-search` restart

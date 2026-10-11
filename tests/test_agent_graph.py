@@ -90,16 +90,26 @@ class GateRoutingTests(unittest.TestCase):
     def test_stale_baseline_routes_back_to_measure_then_plans(self):
         for fallback in engines():
             with self.subTest(fallback=fallback):
-                orchestrator = FakeOrchestrator(captures=[_baseline("b-stale", fresh=False), _baseline("b-fresh")])
+                orchestrator = FakeOrchestrator(stored={"b-stale": _baseline("b-stale", fresh=False)}, captures=[_baseline("b-fresh")])
                 state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
                 self.assertEqual(state["trace"], ["discover", "measure", "measure", "plan"])
                 self.assertIn("plan:b-fresh", orchestrator.calls)
                 self.assertEqual(state["interrupted_before"], ["approval"])
 
-    def test_low_coverage_ends_with_reason_after_retries(self):
+    def test_each_measure_attempt_does_something_different(self):
         for fallback in engines():
             with self.subTest(fallback=fallback):
-                orchestrator = FakeOrchestrator(captures=[_baseline(coverage=0.5), _baseline(coverage=0.5)])
+                orchestrator = FakeOrchestrator(stored={"b-old": _baseline("b-old", fresh=False)}, captures=[])
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
+                self.assertEqual(state["trace"], ["discover", "measure", "measure"])
+                self.assertEqual(orchestrator.calls.count("capture"), 1)  # attempt 1 reuses, attempt 2 captures once
+                self.assertIn("no samples", state["reason"])
+                self.assertIn("b-old", state["baseline_note"])
+
+    def test_low_coverage_ends_with_reason(self):
+        for fallback in engines():
+            with self.subTest(fallback=fallback):
+                orchestrator = FakeOrchestrator(captures=[_baseline(coverage=0.5)])
                 state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
                 self.assertEqual(state["trace"], ["discover", "measure", "measure"])
                 self.assertEqual(state["gate"], "baseline_rejected")
@@ -110,9 +120,18 @@ class GateRoutingTests(unittest.TestCase):
         for fallback in engines():
             with self.subTest(fallback=fallback):
                 orchestrator = FakeOrchestrator(captures=[])
-                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(max_measure_attempts=1)
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
                 self.assertEqual(state["gate"], "baseline_rejected")
                 self.assertIn("no samples", state["reason"])
+                self.assertEqual(state["baseline_note"], "no stored baseline")
+
+    def test_single_attempt_reuses_only_and_never_captures(self):
+        for fallback in engines():
+            with self.subTest(fallback=fallback):
+                orchestrator = FakeOrchestrator(captures=[_baseline()])
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(max_measure_attempts=1)
+                self.assertNotIn("capture", orchestrator.calls)
+                self.assertEqual(state["reason"], "no stored baseline")
 
     def test_supplied_fresh_baseline_is_reused_without_capture(self):
         for fallback in engines():
@@ -121,6 +140,32 @@ class GateRoutingTests(unittest.TestCase):
                 state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(baseline_id="b-1")
                 self.assertNotIn("capture", orchestrator.calls)
                 self.assertEqual(state["baseline_id"], "b-1")
+                self.assertNotIn("baseline_note", state)
+
+    def test_stale_supplied_baseline_replacement_is_reported(self):
+        for fallback in engines():
+            with self.subTest(fallback=fallback):
+                orchestrator = FakeOrchestrator(stored={"b-1": _baseline("b-1", fresh=False)}, captures=[_baseline("b-2")])
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(baseline_id="b-1")
+                self.assertEqual(state["baseline_id"], "b-2")
+                self.assertEqual(state["baseline_note"], "supplied baseline b-1 rejected: baseline is stale; captured b-2 instead")
+
+    def test_unknown_supplied_baseline_is_reported(self):
+        for fallback in engines():
+            with self.subTest(fallback=fallback):
+                orchestrator = FakeOrchestrator(captures=[_baseline("b-2")])
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(baseline_id="nope")
+                self.assertEqual(state["baseline_id"], "b-2")
+                self.assertIn("supplied baseline nope was not found", state["baseline_note"])
+                self.assertEqual(state["requested_baseline_id"], "nope")
+
+    def test_rejected_requested_baseline_is_never_reported_as_in_use(self):
+        for fallback in engines():
+            with self.subTest(fallback=fallback):
+                orchestrator = FakeOrchestrator(captures=[])
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(baseline_id="nope")
+                self.assertEqual(state["gate"], "baseline_rejected")
+                self.assertNotIn("baseline_id", state)
 
     def test_latest_stored_baseline_is_reused_when_fresh(self):
         for fallback in engines():
@@ -130,19 +175,11 @@ class GateRoutingTests(unittest.TestCase):
                 self.assertNotIn("capture", orchestrator.calls)
                 self.assertEqual(state["baseline_id"], "b-latest")
 
-    def test_stale_stored_baseline_triggers_capture(self):
-        for fallback in engines():
-            with self.subTest(fallback=fallback):
-                orchestrator = FakeOrchestrator(stored={"b-old": _baseline("b-old", fresh=False)}, captures=[_baseline("b-new")])
-                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
-                self.assertIn("capture", orchestrator.calls)
-                self.assertEqual(state["baseline_id"], "b-new")
-
     def test_mismatched_graph_version_is_rejected(self):
         for fallback in engines():
             with self.subTest(fallback=fallback):
                 orchestrator = FakeOrchestrator(captures=[_baseline(graph_version="old")])
-                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(max_measure_attempts=1)
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
                 self.assertIn("graph version", state["reason"])
 
 

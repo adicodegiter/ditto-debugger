@@ -75,7 +75,7 @@ flowchart LR
 
 The planner is deterministic rather than an autonomous model. It filters candidates through the policy, then ranks eligible target/action pairs with `weighted_heuristic_v1` (0.40 graph impact + 0.35 novelty + 0.25 uncertainty, from the run history). Every recommendation carries a hypothesis, per-SLI predictions (`hold` / `degrade` / `fail`), risk, and evidence references. After a run, diagnosis compares predicted with observed per SLI, and the findings and resilience score come from the run record. The optional Groq adapter (`AI_PROVIDER=groq`) only rewords finding text; it cannot alter safety decisions or execute actions.
 
-The agents can be orchestrated as a LangGraph graph: `discover` (Agent 1) → `measure` (Agent 2) → `plan` (Agent 3) → pause before `approval`. Conditional edges are the planning gates: no graph ends the run; a missing, stale, under-80%-coverage or graph-mismatched baseline goes back to `measure` (bounded retries) or ends with the reason. The graph never runs a fault; the approved plan is executed only by the operator CLI.
+The agents can be orchestrated as a LangGraph graph: `discover` (Agent 1) → `measure` (Agent 2) → `plan` (Agent 3) → pause before `approval`. Conditional edges are the planning gates: no graph ends the run; a missing, stale, under-80%-coverage or graph-mismatched baseline goes back to `measure` once to capture a fresh one (the first pass reuses the supplied or latest stored baseline) or ends with the reason, and a replaced baseline is named in `baseline_note`. The graph never runs a fault; the approved plan is executed only by the operator CLI.
 
 ## What the Dashboard Shows
 

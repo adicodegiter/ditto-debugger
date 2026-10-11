@@ -48,7 +48,7 @@ Never treat an LLM confidence score as measured probability. Do not send raw log
 
 ## Orchestration
 
-The planning workflow above can run as an optional LangGraph graph (`backend/app/graph.py`): `discover` → `measure` → `plan`, with steps 1–3 as gate edges (no graph ends the run; a missing, stale or low-coverage baseline routes back to `measure` or ends with the reason) and an interrupt before step 5, the human approval. The graph ends at approval and does not execute step 7. A second graph covers steps 7–8 after a run: `diagnose` → `compare` (predicted vs observed) → `report` (deterministic findings, optional Groq rewording). Without LangGraph installed the same node functions run in sequence.
+The planning workflow above can run as an optional LangGraph graph (`backend/app/graph.py`): `discover` → `measure` → `plan`, with steps 1–3 as gate edges (no graph ends the run; a missing, stale or low-coverage baseline routes back to `measure` once to capture a fresh one, or ends with the reason) and an interrupt before step 5, the human approval. The graph ends at approval and does not execute step 7. A second graph covers steps 7–8 after a run: `diagnose` → `compare` (predicted vs observed) → `report` (deterministic findings, optional Groq rewording). Without LangGraph installed the same node functions run in sequence.
 
 ## Evaluation of Planner Quality
 

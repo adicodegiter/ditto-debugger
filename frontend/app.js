@@ -1019,14 +1019,14 @@ function agentGraphTile(g) {
     if (id === trace[trace.length - 1] && !paused && !trace.includes("approval")) return "cli";  // ended at this gate
     return "done";
   };
-  const retries = trace.filter((n) => n === "measure").length;
-  const nodeText = (id, text) => id === "measure" && retries > 1 ? `${text} · ${retries} attempts` : text;
+  const attempts = trace.filter((n) => n === "measure").length;
+  const nodeText = (id, text) => id === "measure" && attempts > 1 ? `${text} · 2 attempts: reuse, then fresh capture` : text;
   const gateChip = !s ? chip("Not run yet", "", "clock") : paused ? chip("Paused before approval", "warn", "clock") : s.gate === "handed_to_operator_cli" ? chip("Handed to operator CLI", "ok", "check") : chip(`Stopped: ${s.gate}`, "bad", "x");
   const approvals = (s?.approvals || []).map((a) => `<div class="row-item"><div><b class="mono">${esc(a.experiment_id)}</b><small>${esc(a.next_step)}</small></div><div>${chip(a.approval_status, a.approval_status === "approved" ? "ok" : "warn")}</div></div>`).join("");
-  const why = `Engine: ${g.engine}${g.langgraph_available ? "" : " (LangGraph not installed; same nodes in sequence)"}. Gate edges route a missing, stale or low-coverage baseline back to measure. The graph pauses before approval and never executes.`;
+  const why = `Engine: ${g.engine}${g.langgraph_available ? "" : " (LangGraph not installed; same nodes in sequence)"}. Measure first reuses the stored baseline; if the gate rejects it, it captures a fresh one once. The graph pauses before approval and never executes.`;
   const right = `${gateChip}<button id="graph-resume" class="button" type="button" ${paused ? "" : "disabled"}>Resume at approval</button><button id="graph-run" class="button button-primary" type="button">${icon("route")}Run agent graph</button>`;
   const body = `<div class="steps graph4">${GRAPH_NODES.map(([id, title, text], i) => `<div class="step ${cls(id)}" data-node="${id}"><span class="n">${cls(id) === "done" ? icon("check", "sm") : i + 1}</span><div><b>${esc(title)}</b><small>${esc(nodeText(id, text))}</small></div></div>`).join("")}</div>
-    <div id="graph-message" style="margin-top:10px">${s ? `<p class="muted">Run <code>${esc(s.thread_id)}</code> · trace <code>${esc(trace.join(" → "))}</code>${s.baseline_id ? ` · baseline <code>${esc(s.baseline_id)}</code>` : ""}${s.plan_id ? ` · plan <code>${esc(s.plan_id)}</code>` : ""}</p><p class="muted">${esc(s.reason || "")}</p>` : '<p class="muted">Runs discover → measure → plan and stops before human approval. Approve with the typed dialog below; execution happens only in <code>python -m safety.cli execute</code>.</p>'}</div>
+    <div id="graph-message" style="margin-top:10px">${s ? `<p class="muted">Graph run <code>${esc(s.thread_id)}</code> · trace <code>${esc(trace.join(" → "))}</code>${s.baseline_id ? ` · baseline <code>${esc(s.baseline_id)}</code>` : ""}${s.plan_id ? ` · plan <code>${esc(s.plan_id)}</code>` : ""}</p><p class="muted">${esc(s.reason || "")}</p>${s.baseline_note ? `<p class="muted">${icon("alert", "sm")} Baseline: ${esc(s.baseline_note)}</p>` : ""}` : '<p class="muted">Runs discover → measure → plan and stops before human approval. Approve with the typed dialog below; execution happens only in <code>python -m safety.cli execute</code>.</p>'}</div>
     ${approvals ? `<div class="row-list" style="margin-top:8px">${approvals}</div>` : ""}`;
   return `<div style="margin-top:16px">${tile({ id: "agent-graph", title: "Agent graph", iconName: "route", why, right, body })}</div>`;
 }

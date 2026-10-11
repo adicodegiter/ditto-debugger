@@ -27,7 +27,7 @@ flowchart LR
     L[Optional LLM] -. evidence-bound analysis .-> R
 ```
 
-The three agents can also be chained as an optional **LangGraph agent graph** (`backend/app/graph.py`): discover → measure → plan, with gate edges that send a missing, stale or low-coverage baseline back to measure, and an interrupt before human approval. The graph ends at approval and never executes; without LangGraph installed the same nodes run in sequence.
+The three agents can also be chained as an optional **LangGraph agent graph** (`backend/app/graph.py`): discover → measure → plan, with gate edges that reuse a stored baseline and, if it is missing, stale or low-coverage, go back to measure once to capture a fresh one, and an interrupt before human approval. The graph ends at approval and never executes; without LangGraph installed the same nodes run in sequence.
 
 See [the architecture](docs/architecture.md) and [the full blueprint](docs/project-blueprint.md).
 The upstream Ditto module paths and the custom workbench code map are in [Ditto codebase map](docs/ditto-codebase-map.md); the role-based 5-person breakdown and shared setup checklist are in [team implementation plan](docs/team-implementation-plan.md).
@@ -182,7 +182,7 @@ Open http://127.0.0.1:8000. Start the workload (`python simulator/fleet_workload
 
 | View | Shows |
 |---|---|
-| **Overview** | Workflow pipeline (baseline → plan → approval → run → findings), live SLIs for the last 30 s (write success and p95, search success, SSE freshness p95) with 5-minute sparklines, latest run, latest baseline and the dependency map; refreshed every 15 s |
+| **Overview** | Workflow pipeline (Topology → Measure → Planner → Approval → Control plane → Impact → Report), live SLIs for the last 30 s (write success and p95, search success, SSE freshness p95) with 5-minute sparklines, latest run, latest baseline and the dependency map; refreshed every 15 s |
 | **System map** | Dependency map (`ai/dependency_map.json`): Ditto services from compose plus the workbench components. Configured, documented and manual edges are drawn differently, with SLI tags; follow a write, search or freshness request through the graph |
 | **Experiments** | Agent graph panel (engine, node states, gate reason; Run agent graph / Resume at approval, neither executes); capture a baseline (refusals show the reason, e.g. under 120 s); stale baselines are flagged; plan; approve or reject proposals by typing `APPROVE`/`REJECT` with your name and a reason. Approved proposals show copy-ready operator commands |
 | **Runs** | Each run's timeline (inject → kill switch → rollback → recovered), kill-switch charts poll by poll against their limits, an in-browser replay, recovery check, where the fault landed, findings, and dry-run/forced-test labels |

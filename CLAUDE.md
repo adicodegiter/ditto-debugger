@@ -121,7 +121,7 @@ TOOLS.md            # tools, libraries, AI models (for the team form)
 | Stretch goals | Re-run after a fix (`search-fail-fast`) verified and combined failures run live (Mac stack; `docs/rerun-after-fix.md`, `docs/combined-failures.md`) |
 | Agent orchestration | Optional LangGraph agent graph (`backend/app/graph.py`, `langgraph==1.2.12` in `requirements-graph.txt`): discover → measure → plan, gate edges on the baseline, pauses before human approval, never executes; post-run graph diagnose → compare → report. Without LangGraph the same nodes run in sequence. Dashboard: Experiments → Agent graph; API `GET /api/v1/agent-graph` |
 | Agent 3 LLM | Optional Groq adapter (`ai/llm.py`, `ai/explain.py`), off unless `AI_PROVIDER=groq`; deterministic findings are the fallback |
-| Tests | 263 passing (`python -m unittest discover -s tests`; 1 LangGraph-only test is skipped when it is not installed) |
+| Tests | 267 passing (`python -m unittest discover -s tests`; 1 LangGraph-only test is skipped when it is not installed) |
 
 **How to run an experiment:** `docs/m4-runbook.md` (`safety.cli baseline → plan → approve → execute [--dry-run|--forced-test]`).
 Only the operator CLI executes; it needs `CHAOS_EXECUTION_ENABLED=true` and an approval typed by a human.

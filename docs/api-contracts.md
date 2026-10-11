@@ -38,7 +38,7 @@ needs `CHAOS_EXECUTION_ENABLED=true` and a typed human approval.
 | `GET /api/v1/policy` | Summary of `configs/experiment-policy.yaml` | Read only |
 | `GET /api/v1/watchdog?limit=50` | Watchdog log (`data/experiments/watchdog.jsonl`) | Read only |
 | `GET /api/v1/agent-graph` | Agent graph structure (nodes, edges with gate conditions, `interrupt_before`), engine (`langgraph` or `sequential-fallback`) and the last planning state | Read only; never runs a node |
-| `POST /api/v1/agent-graph/run` | Run discover → measure → plan and stop before approval (`{"max_candidates": 1–10, "baseline_id"?}`) | Same writes as `POST /baselines` + `/experiments/plan` (`201`); a failed gate ends with `gate` and `reason`. Never executes |
+| `POST /api/v1/agent-graph/run` | Run discover → measure → plan and stop before approval (`{"max_candidates": 1–10, "baseline_id"?}`) | Same writes as `POST /baselines` + `/experiments/plan` (`201`); a failed gate ends with `gate` and `reason`; `baseline_note` names a requested or stored baseline that was rejected or replaced. Never executes |
 | `POST /api/v1/agent-graph/resume` | Resume a paused run at the approval node | Reports each candidate's approval status and next CLI step; `409` if nothing is paused. Never executes |
 | `GET /` and `/assets/*` | Dashboard (`frontend/`) | Static files |
 
