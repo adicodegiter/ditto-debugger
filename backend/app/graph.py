@@ -7,8 +7,8 @@ The nodes WRAP existing AgentOrchestrator methods; they do not reimplement them:
 
 Gates are conditional edges, the same checks the planner enforces: no graph ends the run,
 a rejected baseline (missing / stale / low coverage / other graph version) routes back to
-measure once to capture a fresh one, or ends with the reason. The planning graph is compiled with interrupt_before=["approval"] and ENDS at
-approval: approving is a typed human decision (API / operator CLI), and executing is only
+measure once to capture a fresh one, or ends with the reason. The planning graph is compiled
+with interrupt_before=["approval"] and ENDS at approval: approving is a typed human decision (API / operator CLI), and executing is only
 ever done by the operator CLI (python -m safety.cli execute). No node in this module may
 import or call the runner, the Docker adapter or any execute path
 (tests/test_agent_graph.py enforces this).
