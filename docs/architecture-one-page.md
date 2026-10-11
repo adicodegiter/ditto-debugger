@@ -42,6 +42,7 @@ flowchart LR
 - **Forced kill-switch tests and dry runs are labelled and never scored.**
 
 ## How the AI decides
+- **Agent graph** (`backend/app/graph.py`, LangGraph 1.2.12 if installed, else the same nodes in sequence): `discover` (Agent 1) → `measure` (Agent 2) → `plan` (Agent 3) → pause before `approval`. Gate edges send a missing, stale, low-coverage (< 80%) or graph-mismatched baseline back to `measure` (bounded retries) or end with the reason; no graph ends the run. The graph ends at approval and never executes: approved plans run only via `python -m safety.cli execute`. A second graph does post-run `diagnose` → predicted vs observed → findings. Read-only view: `GET /api/v1/agent-graph`.
 - **Planner** (`weighted_heuristic_v1`, deterministic): graph impact (dependents), a novelty term `1/(1+trials)` and an uncertainty term `1/√(1+trials)` from the SQLite outcome history, capped by per-target risk (first experiment ≤ 0.35).
 - **Diagnosis**: per SLI, predicted vs observed (`match`, `worse`, `better`) and a prediction-accuracy figure; real run records are read directly.
 - **Findings**: ranked by severity then confidence. **Measured facts** (each with its source in the run record) are kept apart from the **hypothesis/fix**, with a validation re-run. A real kill-switch abort is a high-severity finding.

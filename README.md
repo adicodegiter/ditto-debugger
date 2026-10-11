@@ -158,6 +158,15 @@ python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000`. Discovery reads `deploy/ditto/docker-compose.yml` by default (override with `DITTO_COMPOSE_FILE`). Set `PROMETHEUS_URL` to a loopback Prometheus instance once one is configured. Never bind this workbench to `0.0.0.0`.
 
+Optional agent graph (LangGraph; without it the same agents run in sequence). It runs discover → measure → plan and stops before human approval; it never executes faults:
+
+```powershell
+python -m pip install -r requirements-graph.txt
+python -m backend.app.graph --max-candidates 3   # or --describe; GET /api/v1/agent-graph shows the structure
+```
+
+In the dashboard, **Experiments → Agent graph** shows the engine, each node's state and the gate reason. **Run agent graph** runs it to the approval pause, and **Resume at approval** reports each candidate's approval status. Neither button executes anything.
+
 See [deployment instructions](docs/deployment.md) for version and telemetry caveats.
 
 ## Dashboard

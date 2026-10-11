@@ -943,7 +943,7 @@ async function loadArchitecture() {
 // ------------------------------------------------------------------ experiments
 let selectedCandidate = null;
 async function loadExperiments() {
-  const [baselines, plans, limits, runs, graph] = await Promise.all([getJson("/api/v1/baselines?limit=10"), getJson("/api/v1/experiments?limit=20"), policy(), getJson("/api/v1/runs?limit=50"), getJson("/api/v1/dependency-map")]);
+  const [baselines, plans, limits, runs, graph, agentGraph] = await Promise.all([getJson("/api/v1/baselines?limit=10"), getJson("/api/v1/experiments?limit=20"), policy(), getJson("/api/v1/runs?limit=50"), getJson("/api/v1/dependency-map"), getJson("/api/v1/agent-graph").catch(() => null)]);
   const view = $("#view-experiments");
   const allBaselines = baselines.baselines || [];
   const fresh = allBaselines.filter((b) => (Date.now() - Date.parse(b.captured_at)) / 1000 <= limits.baseline_max_age_seconds);
@@ -971,6 +971,7 @@ async function loadExperiments() {
       <div class="kpi"><b>${candidates.length}</b><span>Candidates in the latest plan</span></div>
       <div class="kpi"><b>${esc(limits.approval_expires_after_minutes)} min</b><span>Approval window, single use</span></div>
       <div class="kpi"><b style="color:var(--red-fg)">503</b><span>API execute, by design</span></div></div></section>
+    ${agentGraph ? agentGraphTile(agentGraph) : ""}
     <div class="bento">
       ${tile({ cls: "c6", title: "1 · Capture a baseline", iconName: "gauge", why: "Built from the latest live workload run only. Needs at least 120 s of samples and every SLI healthy.", right: `<button id="baseline-button" class="button" type="button">${icon("gauge")}Capture baseline</button>`, body: `<div id="baseline-message"></div><div class="row-list">${allBaselines.length ? allBaselines.slice(0, 5).map((b) => {
         const stale = (Date.now() - Date.parse(b.captured_at)) / 1000 > limits.baseline_max_age_seconds;
@@ -996,7 +997,59 @@ async function loadExperiments() {
   $$(".cand[data-id]", view).forEach((row) => row.addEventListener("click", () => { selectedCandidate = row.dataset.id; renderDetail(); }));
   renderDetail();
   bindExperimentActions();
+  bindAgentGraph();
   stamp();
+}
+
+// ---- Agent graph (LangGraph, or the same nodes in sequence): advisory, pauses before approval ----
+const GRAPH_NODES = [
+  ["discover", "Agent 1 · Discover", "Versioned graph from the manifests"],
+  ["measure", "Agent 2 · Measure", "Baseline gate: fresh, coverage ≥ 80%, same graph"],
+  ["plan", "Agent 3 · Plan", "Ranked, policy-checked candidates"],
+  ["approval", "Human approval", "Graph pauses here; ends without executing"],
+];
+
+function agentGraphTile(g) {
+  const s = g.last_planning_state;
+  const trace = s?.trace || [];
+  const paused = (s?.interrupted_before || []).includes("approval");
+  const cls = (id) => {
+    if (id === "approval") return trace.includes("approval") ? "done" : paused ? "wait" : "";
+    if (!trace.includes(id)) return "";
+    if (id === trace[trace.length - 1] && !paused && !trace.includes("approval")) return "cli";  // ended at this gate
+    return "done";
+  };
+  const retries = trace.filter((n) => n === "measure").length;
+  const nodeText = (id, text) => id === "measure" && retries > 1 ? `${text} · ${retries} attempts` : text;
+  const gateChip = !s ? chip("Not run yet", "", "clock") : paused ? chip("Paused before approval", "warn", "clock") : s.gate === "handed_to_operator_cli" ? chip("Handed to operator CLI", "ok", "check") : chip(`Stopped: ${s.gate}`, "bad", "x");
+  const approvals = (s?.approvals || []).map((a) => `<div class="row-item"><div><b class="mono">${esc(a.experiment_id)}</b><small>${esc(a.next_step)}</small></div><div>${chip(a.approval_status, a.approval_status === "approved" ? "ok" : "warn")}</div></div>`).join("");
+  const why = `Engine: ${g.engine}${g.langgraph_available ? "" : " (LangGraph not installed; same nodes in sequence)"}. Gate edges route a missing, stale or low-coverage baseline back to measure. The graph pauses before approval and never executes.`;
+  const right = `${gateChip}<button id="graph-resume" class="button" type="button" ${paused ? "" : "disabled"}>Resume at approval</button><button id="graph-run" class="button button-primary" type="button">${icon("route")}Run agent graph</button>`;
+  const body = `<div class="steps graph4">${GRAPH_NODES.map(([id, title, text], i) => `<div class="step ${cls(id)}" data-node="${id}"><span class="n">${cls(id) === "done" ? icon("check", "sm") : i + 1}</span><div><b>${esc(title)}</b><small>${esc(nodeText(id, text))}</small></div></div>`).join("")}</div>
+    <div id="graph-message" style="margin-top:10px">${s ? `<p class="muted">Run <code>${esc(s.thread_id)}</code> · trace <code>${esc(trace.join(" → "))}</code>${s.baseline_id ? ` · baseline <code>${esc(s.baseline_id)}</code>` : ""}${s.plan_id ? ` · plan <code>${esc(s.plan_id)}</code>` : ""}</p><p class="muted">${esc(s.reason || "")}</p>` : '<p class="muted">Runs discover → measure → plan and stops before human approval. Approve with the typed dialog below; execution happens only in <code>python -m safety.cli execute</code>.</p>'}</div>
+    ${approvals ? `<div class="row-list" style="margin-top:8px">${approvals}</div>` : ""}`;
+  return `<div style="margin-top:16px">${tile({ id: "agent-graph", title: "Agent graph", iconName: "route", why, right, body })}</div>`;
+}
+
+function bindAgentGraph() {
+  const run = $("#graph-run");
+  if (!run) return;
+  run.addEventListener("click", async () => {
+    run.disabled = true;
+    $("#graph-message").innerHTML = '<p class="muted">Running discover → measure → plan…</p>';
+    try {
+      await getJson("/api/v1/agent-graph/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ max_candidates: 3 }) });
+      selectedCandidate = null;
+      await loadExperiments();
+    } catch (error) {
+      $("#graph-message").innerHTML = `<div class="notice bad">${esc(error.message)}</div>`;
+      run.disabled = false;
+    }
+  });
+  $("#graph-resume").addEventListener("click", async () => {
+    try { await getJson("/api/v1/agent-graph/resume", { method: "POST" }); await loadExperiments(); }
+    catch (error) { $("#graph-message").innerHTML = `<div class="notice bad">${esc(error.message)}</div>`; }
+  });
 }
 
 function statusChip(c, runs) {

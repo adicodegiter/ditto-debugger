@@ -446,6 +446,7 @@ main { max-width: 1440px; margin: 0 auto; padding: 28px 28px 40px; }
 
 /* ---------------------------------------------------------------- experiments */
 .steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.steps.graph4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .step { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); position: relative; min-width: 0; }
 .step .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; background: rgba(255, 255, 255, 0.06); color: var(--text-2); }
 .step.done .n { background: rgba(0, 136, 74, 0.25); color: var(--green-fg); }
@@ -540,7 +541,7 @@ dialog label { display: flex; flex-direction: column; gap: 6px; font-size: 13px;
   .safety-strip code { margin-left: 0; }
   .c3 { grid-column: span 12; }
   .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .steps, .kpis, .pvo, .check-list, .why-rings, .chart-grid { grid-template-columns: 1fr; }
+  .steps, .steps.graph4, .kpis, .pvo, .check-list, .why-rings, .chart-grid { grid-template-columns: 1fr; }
   .ks-states { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .score-layout { grid-template-columns: 1fr; }
   .rule { grid-template-columns: 22px 1fr auto; }
