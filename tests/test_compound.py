@@ -100,6 +100,19 @@ class CompoundPolicyTests(unittest.TestCase):
             with self.subTest(name), self.assertRaises(SafetyViolation):
                 self.policy.validate_candidate(item)
 
+    def test_combined_run_ends_one_kill_switch_poll_before_the_cap(self):
+        faults = self.good["faults"]
+        limit = self.policy.max_duration_seconds - self.policy.thresholds.poll_interval_seconds
+
+        def ending_at(end):
+            second = dict(faults[1], start_offset_seconds=15, duration_seconds=end - 15)
+            return {**self.good, "faults": [faults[0], second], "duration_seconds": end}
+
+        self.policy.validate_candidate(ending_at(int(limit)))
+        # Ending exactly at the cap always aborted on the deadline check (#18), so it is refused up front.
+        with self.assertRaises(SafetyViolation):
+            self.policy.validate_candidate(ending_at(self.policy.max_duration_seconds))
+
     def test_mongodb_and_unlisted_pairs_are_never_combinable(self):
         mongo = single("cpu_throttle", "mongodb", 30, 0.3, {"write": "fail"})
         with self.assertRaises(SafetyViolation):

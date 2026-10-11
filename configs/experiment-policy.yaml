@@ -58,7 +58,7 @@ actions:
 # Combined failures (stretch goal): two staged faults in ONE approved, immutable plan under ONE
 # kill switch. Only the listed action/target pairs may be combined; a pair is unordered.
 # Rules enforced in safety/policy.py: <= max_faults, one fault per target, mongodb never combined,
-# every fault ends inside max_duration_seconds, combined risk 1-prod(1-r) <= max_risk_score.
+# the run ends one kill-switch poll before max_duration_seconds, combined risk 1-prod(1-r) <= max_risk_score.
 compound:
   enabled: true
   max_faults: 2

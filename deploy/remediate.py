@@ -176,14 +176,29 @@ def revert(name: str, base_url: str, runner: Callable[..., Any] = subprocess.run
     return {"remediation": name, "action": "revert", "active": active, "healthy_search": search, "reverted_at": started}
 
 
-def _experiment_running() -> bool:
-    """Best effort (pgrep, not on Windows): never recreate nginx in the middle of a fault."""
-    if os.name == "nt":
-        return False
+# Read-only process listing on Windows (the team's host): python processes whose command line runs
+# the operator CLI's execute. The listing excludes PowerShell itself, whose command line holds the pattern.
+_WINDOWS_PROCESS_QUERY = (
+    "@(Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | "
+    "Where-Object { $_.CommandLine -like '*safety.cli*execute*' }).Count"
+)
+
+
+def _experiment_running(runner: Callable[..., Any] = subprocess.run, os_name: str = os.name) -> bool:
+    """Never recreate nginx in the middle of a fault. If the process list cannot be read, assume an
+    experiment may be running (the caller refuses) rather than guessing that none is."""
     try:
-        return subprocess.run(["pgrep", "-f", "safety.cli execute"], capture_output=True).returncode == 0
-    except OSError:
-        return False
+        if os_name == "nt":
+            result = runner(["powershell", "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_PROCESS_QUERY],
+                            capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                return True
+            return int((result.stdout or "0").strip() or "0") > 0
+        # pgrep exits 0 when it finds a match, 1 when it finds none, and 2+ on error.
+        result = runner(["pgrep", "-f", "safety.cli execute"], capture_output=True, timeout=30)
+        return result.returncode != 1
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return True
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -255,5 +255,47 @@ class DeploymentStampTests(unittest.TestCase):
         self.assertEqual(state["error"], "RuntimeError")
 
 
+class ExperimentGuardTests(unittest.TestCase):
+    """deploy/remediate.py must never recreate nginx in the middle of a fault, on Windows too."""
+
+    @staticmethod
+    def runner(returncode=0, stdout="", error=None):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if error is not None:
+                raise error
+            return type("Result", (), {"returncode": returncode, "stdout": stdout})()
+        run.calls = calls
+        return run
+
+    def test_windows_reads_the_process_list(self):
+        found = self.runner(stdout="1\r\n")
+        self.assertTrue(remediate._experiment_running(found, os_name="nt"))
+        self.assertEqual(found.calls[0][0], "powershell")
+        self.assertFalse(remediate._experiment_running(self.runner(stdout="0\r\n"), os_name="nt"))
+
+    def test_unreadable_process_list_counts_as_running(self):
+        self.assertTrue(remediate._experiment_running(self.runner(returncode=1), os_name="nt"))
+        self.assertTrue(remediate._experiment_running(self.runner(stdout="not a number"), os_name="nt"))
+        self.assertTrue(remediate._experiment_running(self.runner(error=OSError()), os_name="nt"))
+        self.assertTrue(remediate._experiment_running(self.runner(error=OSError()), os_name="posix"))
+
+    def test_pgrep_exit_codes(self):
+        self.assertTrue(remediate._experiment_running(self.runner(returncode=0), os_name="posix"))   # match
+        self.assertFalse(remediate._experiment_running(self.runner(returncode=1), os_name="posix"))  # no match
+        self.assertTrue(remediate._experiment_running(self.runner(returncode=2), os_name="posix"))   # error
+
+    def test_apply_is_refused_while_an_experiment_runs(self):
+        original = remediate._experiment_running
+        remediate._experiment_running = lambda: True
+        try:
+            self.assertEqual(remediate.main(["apply", "search-fail-fast"]), 2)
+            self.assertEqual(remediate.main(["revert", "search-fail-fast"]), 2)
+        finally:
+            remediate._experiment_running = original
+
+
 if __name__ == "__main__":
     unittest.main()

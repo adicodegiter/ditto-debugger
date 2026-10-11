@@ -255,8 +255,14 @@ class Policy:
             raise SafetyViolation("MongoDB can never be part of a combined failure.")
         if frozenset(keys) not in rules.allowed_pairs:
             raise SafetyViolation("This combination of faults is not on the policy's allowed_pairs list.")
-        if candidate.get("duration_seconds") != end or end > self.max_duration_seconds:
-            raise SafetyViolation("Combined duration must equal the last fault's end and stay within the policy limit.")
+        # Leave one kill-switch poll of headroom: the last poll lands just after the planned end, so a
+        # run planned to end exactly at max_duration_seconds always aborts on the deadline (see #18).
+        limit = self.max_duration_seconds - self.thresholds.poll_interval_seconds
+        if candidate.get("duration_seconds") != end or end > limit:
+            raise SafetyViolation(
+                "Combined duration must equal the last fault's end and end at least one kill-switch poll "
+                "before the policy's maximum duration."
+            )
         combined = 1.0 - risk
         stated = candidate.get("risk_score")
         if not isinstance(stated, (int, float)) or isinstance(stated, bool) or abs(stated - combined) > 0.01:

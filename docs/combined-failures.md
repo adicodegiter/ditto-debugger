@@ -39,7 +39,7 @@ first, as in `docs/m5-results.md`). Without them the verdict is `inconclusive`, 
 | Exactly two faults, never two on one target (their rollbacks would conflict) | policy, hard ceiling in code |
 | MongoDB can never be part of a combination (checked at policy load and per candidate) | policy |
 | Every fault is individually valid: enabled action, allowlisted target | same checks as single faults |
-| Each fault ends inside `max_duration_seconds` (60 s); start offsets ≤ `max_stagger_seconds` (20 s) | policy |
+| The whole run ends at least one kill-switch poll before `max_duration_seconds` (by 58 s with the 2 s poll; ending at exactly 60 s always aborted on the deadline, see #18); start offsets ≤ `max_stagger_seconds` (20 s) | policy |
 | Combined risk `1 − ∏(1 − rᵢ)` must equal the stated value and be ≤ `compound.max_risk_score` (0.45) | policy |
 | The approval hash covers every fault, so changing one invalidates it; approvals are single use | runner |
 | `--dry-run` and `--forced-test` are never scored; the API `execute` is still 503 | runner, API |
