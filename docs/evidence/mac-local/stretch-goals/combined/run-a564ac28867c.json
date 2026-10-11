@@ -1,0 +1,459 @@
+{
+  "action_params": {
+    "duration_seconds": 30
+  },
+  "action_state": {},
+  "baseline_valid": true,
+  "baseline_write_p95_ms": 39.55,
+  "cleanup_state": "complete",
+  "created_at": "2026-10-11T00:25:34.731100+00:00",
+  "diagnosis": {
+    "action": "pause_container",
+    "comparison": {
+      "freshness": {
+        "error_rate": 0.0,
+        "observed": "degrade",
+        "p95_ms": null,
+        "predicted": "hold",
+        "verdict": "worse_than_predicted"
+      },
+      "search": {
+        "error_rate": 1.0,
+        "observed": "fail",
+        "p95_ms": null,
+        "predicted": "fail",
+        "verdict": "match"
+      },
+      "write": {
+        "error_rate": 0.0,
+        "observed": "degrade",
+        "p95_ms": 49.571,
+        "predicted": "hold",
+        "verdict": "worse_than_predicted"
+      }
+    },
+    "created_at": "2026-10-11T00:26:28.830972+00:00",
+    "diagnosis_id": "diag-run-a564ac28867c",
+    "evidence_use": "experiment",
+    "experiment_id": "pause_container-things-search-e4ad3953cc58b46a",
+    "flags": [
+      "worse_than_predicted"
+    ],
+    "kill_switch": {
+      "forced_test": false,
+      "tripped": false
+    },
+    "prediction_accuracy": 0.33,
+    "recovered": true,
+    "recovery_s": 22.776,
+    "recovery_seconds": 22.776,
+    "recovery_status": "recovered",
+    "run_id": "run-a564ac28867c",
+    "schema_version": "1.0",
+    "summary": "things-search pause_container: prediction matched on 1 of 3 measured SLIs. Recovery: 22.776s.",
+    "target_component": "things-search",
+    "warnings": []
+  },
+  "experiment_id": "pause_container-things-search-e4ad3953cc58b46a",
+  "findings": [
+    {
+      "ai_generated": false,
+      "confidence": 0.95,
+      "evidence": [
+        "run:run-a564ac28867c",
+        "recovery:things-search",
+        "observation_count:16",
+        "degraded_observations:13"
+      ],
+      "id": "run-a564ac28867c-availability",
+      "recommendation": "Investigate the affected dependency and add an availability budget or timeout protection before increasing fault duration.",
+      "run_id": "run-a564ac28867c",
+      "schema_version": "1.0",
+      "severity": "medium",
+      "summary": "The approved experiment caused measurable client-side availability degradation."
+    },
+    {
+      "ai_generated": false,
+      "confidence": 0.9,
+      "evidence": [
+        "run:run-a564ac28867c",
+        "recovery:things-search",
+        "diagnosis:diag-run-a564ac28867c",
+        "write:degrade",
+        "freshness:degrade"
+      ],
+      "id": "run-a564ac28867c-worse-than-predicted",
+      "recommendation": "Treat this as an unexpected coupling: check timeouts, retries and resource limits on the affected path before widening fault scope.",
+      "run_id": "run-a564ac28867c",
+      "schema_version": "1.0",
+      "severity": "high",
+      "summary": "Impact was worse than predicted on: write (predicted hold, observed degrade), freshness (predicted hold, observed degrade)."
+    }
+  ],
+  "history_outcome": "failure_observed",
+  "observations": [
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.050903,
+      "freshness_samples": 57,
+      "phase": "pre_fault",
+      "search_error_rate": 0.0,
+      "search_samples": 57,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:35.308303+00:00",
+      "window_start": "2026-10-11T00:25:05.308303+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.683,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.050903,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.0,
+      "search_samples": 52,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:37.559491+00:00",
+      "window_start": "2026-10-11T00:25:07.559491+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.683,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.02040816326530612,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.050903,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.02040816326530612,
+      "search_samples": 49,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:39.720701+00:00",
+      "window_start": "2026-10-11T00:25:09.720701+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.683,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.022222222222222223,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.050903,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.022222222222222223,
+      "search_samples": 45,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:41.848648+00:00",
+      "window_start": "2026-10-11T00:25:11.848648+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.683,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.047619047619047616,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.050903,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.047619047619047616,
+      "search_samples": 42,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:44.005779+00:00",
+      "window_start": "2026-10-11T00:25:14.005779+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.683,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.07692307692307693,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.052161,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.07692307692307693,
+      "search_samples": 39,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:46.261812+00:00",
+      "window_start": "2026-10-11T00:25:16.261812+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 49.571,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.08571428571428572,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.052161,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.08571428571428572,
+      "search_samples": 35,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:48.409890+00:00",
+      "window_start": "2026-10-11T00:25:18.409890+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 49.571,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.12903225806451613,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.052161,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.12903225806451613,
+      "search_samples": 31,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:50.564705+00:00",
+      "window_start": "2026-10-11T00:25:20.564705+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 49.571,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.17857142857142858,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.052161,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.17857142857142858,
+      "search_samples": 28,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:52.753331+00:00",
+      "window_start": "2026-10-11T00:25:22.753331+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 49.571,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.20833333333333334,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.055845,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.20833333333333334,
+      "search_samples": 24,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:54.922328+00:00",
+      "window_start": "2026-10-11T00:25:24.922328+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 49.571,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.2857142857142857,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.055845,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.2857142857142857,
+      "search_samples": 21,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:57.071500+00:00",
+      "window_start": "2026-10-11T00:25:27.071500+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 49.571,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.35294117647058826,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.055845,
+      "freshness_samples": 56,
+      "phase": "fault",
+      "search_error_rate": 0.35294117647058826,
+      "search_samples": 17,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:25:59.329696+00:00",
+      "window_start": "2026-10-11T00:25:29.329696+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.683,
+      "write_samples": 56
+    },
+    {
+      "error_rate": 0.5,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.055845,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.5,
+      "search_samples": 14,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:26:01.499697+00:00",
+      "window_start": "2026-10-11T00:25:31.499697+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.683,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.7272727272727273,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.055845,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 0.7272727272727273,
+      "search_samples": 11,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:26:03.668551+00:00",
+      "window_start": "2026-10-11T00:25:33.668551+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 48.201,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 1.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.043886,
+      "freshness_samples": 57,
+      "phase": "fault",
+      "search_error_rate": 1.0,
+      "search_samples": 8,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:26:05.460220+00:00",
+      "window_start": "2026-10-11T00:25:35.460220+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 38.283,
+      "write_samples": 57
+    },
+    {
+      "error_rate": 0.0,
+      "freshness_method": "poll-proxy",
+      "freshness_p95_seconds": 0.029059,
+      "freshness_samples": 43,
+      "phase": "recovered",
+      "search_error_rate": 0.0,
+      "search_samples": 43,
+      "source": "sli_jsonl",
+      "telemetry_available": true,
+      "unrelated_component_healthy": true,
+      "window_end": "2026-10-11T00:26:28.649282+00:00",
+      "window_start": "2026-10-11T00:26:06.048558+00:00",
+      "write_error_rate": 0.0,
+      "write_p95_ms": 26.476,
+      "write_samples": 43
+    }
+  ],
+  "prediction": {
+    "predicted_impacts": [
+      "things-search"
+    ],
+    "predicted_slis": {
+      "freshness": "hold",
+      "search": "fail",
+      "write": "hold"
+    }
+  },
+  "recovery": {
+    "canary": true,
+    "canary_path": "/api/2/search/things?option=size(1)",
+    "canary_status": 200,
+    "health_status": 200,
+    "healthy": true,
+    "sli_reason": null,
+    "slis_within_baseline": true,
+    "target": "things-search"
+  },
+  "recovery_time_seconds": 22.776,
+  "recovery_verified": true,
+  "resilience_score": {
+    "components": {
+      "availability": 0.0,
+      "containment": 1.0,
+      "detection": 1.0,
+      "latency": 0.7978455145145347,
+      "recovery": 0.8734666666666666
+    },
+    "coverage": 1.0,
+    "score": 63.43,
+    "status": "complete"
+  },
+  "run_id": "run-a564ac28867c",
+  "safety_violation": false,
+  "schema_version": "1.0",
+  "score_components": {
+    "availability": 0.0,
+    "containment": 1.0,
+    "detection": 1.0,
+    "latency": 0.7978455145145347,
+    "recovery": 0.8734666666666666
+  },
+  "score_inputs": {
+    "availability": {
+      "rule": "1 - max(worst write error rate, worst search error rate) over fault windows",
+      "worst_search_error_rate": 1.0,
+      "worst_write_error_rate": 0.0
+    },
+    "containment": {
+      "all_healthy": true,
+      "rule": "1 if every checked fault window kept unrelated components healthy, else 0",
+      "windows_checked": 14
+    },
+    "detection": {
+      "rule": "1.0 for a completed run, 0.5 when the kill switch aborted it",
+      "status": "completed"
+    },
+    "fault_windows": 14,
+    "latency": {
+      "baseline_write_p95_ms": 39.55,
+      "rule": "baseline write p95 / worst write p95 during fault, capped at 1",
+      "worst_write_p95_ms": 49.571
+    },
+    "recovery": {
+      "budget_seconds": 180.0,
+      "recovery_time_seconds": 22.776,
+      "rule": "1 - recovery time after rollback / recovery budget"
+    },
+    "score_version": "1.0",
+    "weights": {
+      "availability": 0.3,
+      "containment": 0.15,
+      "detection": 0.15,
+      "latency": 0.2,
+      "recovery": 0.2
+    }
+  },
+  "status": "completed",
+  "timeline": {
+    "action_completed_at": "2026-10-11T00:25:35.554165+00:00",
+    "created_at": "2026-10-11T00:25:34.731100+00:00",
+    "injected_at": "2026-10-11T00:25:35.454930+00:00",
+    "recovered_at": "2026-10-11T00:26:28.824557+00:00",
+    "rollback_at": "2026-10-11T00:26:06.048507+00:00"
+  },
+  "watchdog": {
+    "armed": false,
+    "deadline": "2026-10-11T00:26:20.453457+00:00"
+  }
+}
