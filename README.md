@@ -27,6 +27,8 @@ flowchart LR
     L[Optional LLM] -. evidence-bound analysis .-> R
 ```
 
+The three agents can also be chained as an optional **LangGraph agent graph** (`backend/app/graph.py`): discover → measure → plan, with gate edges that send a missing, stale or low-coverage baseline back to measure, and an interrupt before human approval. The graph ends at approval and never executes; without LangGraph installed the same nodes run in sequence.
+
 See [the architecture](docs/architecture.md) and [the full blueprint](docs/project-blueprint.md).
 The upstream Ditto module paths and the custom workbench code map are in [Ditto codebase map](docs/ditto-codebase-map.md); the role-based 5-person breakdown and shared setup checklist are in [team implementation plan](docs/team-implementation-plan.md).
 
@@ -49,6 +51,7 @@ The upstream Ditto module paths and the custom workbench code map are in [Ditto 
 - **M1 dependency map:** [docs/dependency-map.md](docs/dependency-map.md) (Mermaid) and `ai/dependency_map.json`, generated from the pinned compose file by `python -m ai.dependency_map`. Every edge is labelled configured, documented or manual, and every Ditto node lists the SLIs it can affect.
 - **M4 done on 2026-10-10:** a real `things-search` restart completed, with recovery verified 4.2 s after rollback. A forced kill-switch test aborted 2.5 s into the fault and rolled back 0.5 s later. See [docs/m4-results.md](docs/m4-results.md); to repeat it, follow [docs/m4-runbook.md](docs/m4-runbook.md).
 - **Day 2 (M5) done on 2026-10-10/11:** restart, pause and traffic-burst experiments ran live with fresh baselines, dry runs and typed approvals, and every one recovered. Predicted vs observed per SLI, ranked findings and the resilience score come from the run records ([docs/m5-results.md](docs/m5-results.md)). The 5.7 re-run showed the 3 s search timeout cuts a failing search from 10.0 s to 3.0 s. The [findings report](docs/findings-report.md) ranks the weaknesses with fixes and gives an overall resilience score of 83.69 / 100; remaining work (video, submission) is tracked in [docs/day2-plan.md](docs/day2-plan.md).
+- **Agent orchestration (optional):** the agents run as a LangGraph state graph that pauses before human approval (`requirements-graph.txt`, `python -m backend.app.graph`, dashboard Experiments → Agent graph). Checked live on 2026-10-11: the graph planned from a fresh baseline and paused at approval; after a typed approval the operator CLI ran a 10 s `things-search` restart that recovered in 9.3 s.
 - Team repository: https://github.com/adicodegiter/ditto-debugger
 
 ## Prerequisites
@@ -179,13 +182,15 @@ Open http://127.0.0.1:8000. Start the workload (`python simulator/fleet_workload
 
 | View | Shows |
 |---|---|
-| **Overview** | Live SLIs for the last 30 s (write success and p95, search success, SSE freshness p95) with 5-minute sparklines, refreshed every 5 s; latest baseline; latest run; agent status |
-| **Architecture** | Dependency map (`ai/dependency_map.json`): Ditto services from compose plus the workbench components. Configured, documented and manual edges are drawn differently, with SLI tags and the SLI request paths |
-| **Experiments** | Capture a baseline (refusals show the reason, e.g. under 120 s); stale baselines are flagged; plan; approve or reject proposals by typing `APPROVE`/`REJECT` with your name and a reason. Approved proposals show copy-ready operator commands |
-| **Runs** | Each run's timeline (inject → kill switch → rollback → recovered), kill-switch charts poll by poll against their limits, recovery check, findings, and dry-run/forced-test labels |
-| **Safety** | Policy limits and allow-list, abort thresholds, watchdog log, audit trail |
+| **Overview** | Workflow pipeline (baseline → plan → approval → run → findings), live SLIs for the last 30 s (write success and p95, search success, SSE freshness p95) with 5-minute sparklines, latest run, latest baseline and the dependency map; refreshed every 15 s |
+| **System map** | Dependency map (`ai/dependency_map.json`): Ditto services from compose plus the workbench components. Configured, documented and manual edges are drawn differently, with SLI tags; follow a write, search or freshness request through the graph |
+| **Experiments** | Agent graph panel (engine, node states, gate reason; Run agent graph / Resume at approval, neither executes); capture a baseline (refusals show the reason, e.g. under 120 s); stale baselines are flagged; plan; approve or reject proposals by typing `APPROVE`/`REJECT` with your name and a reason. Approved proposals show copy-ready operator commands |
+| **Runs** | Each run's timeline (inject → kill switch → rollback → recovered), kill-switch charts poll by poll against their limits, an in-browser replay, recovery check, where the fault landed, findings, and dry-run/forced-test labels |
+| **Safety** | Policy limits and allow-list, abort thresholds, watchdog log, audit trail; refreshed every 15 s |
 
-The dashboard never executes a fault. Experiments run only from the operator CLI (`python -m safety.cli`), as described in [docs/m4-runbook.md](docs/m4-runbook.md). The read-only data endpoints behind the views are `/api/v1/slis`, `/api/v1/slis/series`, `/api/v1/baselines`, `/api/v1/policy`, `/api/v1/dependency-map` and `/api/v1/watchdog`.
+An experimental read-only view, `http://127.0.0.1:8000/assets/lab.html`, replays recorded runs as a labelled simulation; it never touches a container.
+
+The dashboard never executes a fault. Experiments run only from the operator CLI (`python -m safety.cli`), as described in [docs/m4-runbook.md](docs/m4-runbook.md). The read-only data endpoints behind the views are `/api/v1/slis`, `/api/v1/slis/series`, `/api/v1/baselines`, `/api/v1/policy`, `/api/v1/dependency-map`, `/api/v1/watchdog` and `/api/v1/agent-graph`. The full route list is in [docs/api-contracts.md](docs/api-contracts.md).
 
 ## Demo Workflow
 
@@ -210,8 +215,8 @@ More detail is in [the demo runbook](docs/hackathon-demo.md) and [the safety mod
 
 Run everything from the repository root (Git Bash or WSL2 on Windows). Each step says what "good" looks like.
 
-1. **Install and test.** `python -m pip install -r requirements-dev.txt`, then
-   `python -m unittest discover -s tests` (all OK).
+1. **Install and test.** `python -m pip install -r requirements-dev.txt` (add `-r requirements-graph.txt` for the
+   optional LangGraph agent graph), then `python -m unittest discover -s tests` (all OK).
 2. **Start the target.** `docker compose --env-file deploy/image-pins.env -f deploy/ditto/docker-compose.yml up -d`,
    then `bash deploy/health_check.sh --wait 300` (OVERALL: HEALTHY) and `python simulator/smoke_test.py` (5/5 PASS).
 3. **Start the workload** in its own terminal and leave it running for the whole session:
@@ -264,7 +269,7 @@ labelled and never scored.
 - **Evidence:** [docs/evidence/windows-host/](docs/evidence/windows-host/README.md) (run records and raw probe samples),
   [docs/m4-results.md](docs/m4-results.md), [docs/m5-results.md](docs/m5-results.md),
   [docs/dashboard-check.md](docs/dashboard-check.md).
-- **Demo video (3 min or less):** _link to be added_.
+- **Demo video (3 min or less):** _link to be added_. Script: [docs/hackathon-demo.md](docs/hackathon-demo.md).
 
 ## Stretch goals
 

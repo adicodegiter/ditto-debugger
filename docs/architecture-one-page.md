@@ -19,6 +19,7 @@ flowchart LR
   UI[Dashboard + API] -. read, plan, approve .-> DB
   UI -. execute always 503 .-> CP
   LLM[Groq, optional] -. rewrites finding text only .-> A3
+  LG[LangGraph agent graph, optional<br/>A1 → A2 → A3, pauses before approval] -. orchestrates .-> A3
 ```
 
 ## Components and boundaries

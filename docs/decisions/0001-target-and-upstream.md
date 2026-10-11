@@ -14,3 +14,9 @@ Target [eclipse-ditto/ditto](https://github.com/eclipse-ditto/ditto), pin releas
 ## Consequences
 
 This preserves upstream ownership/licensing and enables reproducible local testing. Five app services do not satisfy a ten-application-service requirement; supporting containers must not be mislabeled. The official benchmark has extra infrastructure/prerequisites. Pin and revalidate on version updates. Public publishing waits for Bosch/employer IP approval.
+
+## Update 2026-10-11
+
+Deployment verified (M0): Ditto 3.9.8 runs from `deploy/ditto/`, a vendored, pinned copy of upstream
+`deployment/docker` (image pins, loopback ports, named MongoDB volume, nginx assets). Ditto source code itself is
+still not forked or patched; the optional source checkout lives in the ignored `vendor/` folder.

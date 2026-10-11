@@ -2,6 +2,12 @@
 
 ## Measurement Plan
 
+> **Implemented today:** the three SLIs come from our own probes, not Artillery or `/alive`: write (success rate,
+> p50/p95 of telemetry writes), search (success rate, latency of fleet search queries) and freshness (staleness of
+> each change on Ditto's SSE stream), all as JSON Lines in `data/metrics/*.jsonl`. Recovery time runs from rollback
+> until health, an authenticated canary and the SLIs are back within thresholds. The table below is the original
+> measurement design; the implemented score formulas are further down.
+
 Collect a healthy baseline before an experiment and compare equivalent workload, Ditto image/version, graph, and time windows. Initial defaults are 120 seconds baseline, 60 seconds observation window, 120 seconds recovery timeout, and 5-second scrape interval; tune after measured preflight. Preserve UTC timestamps and metric labels.
 
 | Measurement | MVP source | Definition |

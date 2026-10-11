@@ -13,7 +13,7 @@
 | History | `LocalRepository` | novelty and uncertainty; only conclusive runs are recorded |
 
 ## Candidates
-One candidate per allow-listed target, action `restart_container` only. A target is rejected when it is not a discovered Ditto service, exceeds the risk cap, or has no predicted effect observable with the measured SLIs. Every rejection is returned with a reason.
+One candidate per allow-listed target and enabled policy action that may target it (restart, stop, pause, CPU throttle, traffic burst). A target is rejected when it is not a discovered Ditto service, exceeds the risk cap, or has no predicted effect observable with the measured SLIs. Every rejection is returned with a reason.
 
 **First-run rule:** while no experiment has completed, only candidates with impact <= `first_run_max_impact` (0.35) are eligible; the rest are listed as deferred. If none qualify, the lowest-impact candidate is used and the reason says so.
 
@@ -28,5 +28,5 @@ Per SLI during the run: **fail** if error rate >= 20%, **degrade** if error rate
 Flags: `did_not_recover`, `slow_recovery`, `worse_than_predicted`, `kill_switch_fired`, `safety_violation`, `cleanup_not_complete`.
 `evidence_use` is `experiment`, `kill_switch_test` (forced abort; proves the kill switch only) or `inconclusive` (telemetry gap or failed run). Only `experiment` runs update planner history.
 
-## Out of scope on Day 1
-Severity ranking, fix recommendations, findings report, resilience score, LLM wording (Day 2).
+## Added on Day 2
+Severity ranking (`ai/ranking.py`), fix recommendations and the findings report (`ai/report_export.py`, `docs/findings-report.md`), the resilience score (`safety/scoring.py`), optional Groq wording (`ai/explain.py`), and the optional LangGraph agent graph that wraps `plan` and `diagnose_run` as nodes (`backend/app/graph.py`).
