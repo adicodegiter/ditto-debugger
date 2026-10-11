@@ -131,6 +131,21 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
             raise HTTPException(status_code=404, detail="Run was not found.")
         return run
 
+    @application.get("/api/v1/runs/{run_id}/interaction")
+    def run_interaction(run_id: str) -> dict[str, Any]:
+        # Read-only: recomputed from the stored runs, so a verdict saved before a solo run existed is never shown stale.
+        orchestrator = application.state.orchestrator
+        run = orchestrator.get_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run was not found.")
+        return views.run_interaction(run, orchestrator.list_runs(200))
+
+    @application.get("/api/v1/remediations")
+    def remediations() -> dict[str, Any]:
+        # Read-only: fix registry, latest before/after verdict, and the deployment stamp of the last run.
+        orchestrator = application.state.orchestrator
+        return views.remediation_views(REPOSITORY_ROOT, orchestrator.settings.metrics_dir, orchestrator.list_runs(200))
+
     @application.get("/api/v1/findings")
     def list_findings(run_id: str | None = None) -> dict[str, Any]:
         if run_id and application.state.orchestrator.get_run(run_id) is None:
@@ -207,6 +222,10 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     @application.get("/")
     def dashboard() -> FileResponse:
         return FileResponse(REPOSITORY_ROOT / "frontend" / "index.html")
+
+    @application.get("/lab")
+    def lab() -> FileResponse:
+        return FileResponse(REPOSITORY_ROOT / "frontend" / "lab.html")
 
     application.mount("/assets", StaticFiles(directory=REPOSITORY_ROOT / "frontend"), name="assets")
     return application

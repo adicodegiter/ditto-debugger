@@ -525,7 +525,7 @@ dialog label { display: flex; flex-direction: column; gap: 6px; font-size: 13px;
   .stages { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .stage .connector { display: none; }
   .stage-detail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .runs-layout { grid-template-columns: 1fr; }
+  .runs-layout { grid-template-columns: minmax(0, 1fr); } /* the run list scrolls inside its strip instead of widening the page */
   .run-list { position: static; flex-direction: row; overflow-x: auto; }
   .run-item { min-width: 230px; }
   .cand { grid-template-columns: 26px minmax(140px, 1fr) 44px 110px 100px; }
@@ -558,3 +558,21 @@ dialog label { display: flex; flex-direction: column; gap: 6px; font-size: 13px;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- stretch goals: combined runs and re-run after a fix ---- */
+.ri-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ri-tags .chip { font-size: 11px; }
+.fault-lanes { display: grid; gap: 5px; margin-top: 4px; }
+.fault-lane { position: relative; height: 22px; }
+.fl-bar { position: absolute; top: 0; height: 22px; min-width: 6px; border-radius: 6px; overflow: hidden;
+  background: rgba(255, 207, 0, 0.16); border: 1px solid rgba(255, 207, 0, 0.55); }
+.fl-bar.pause_container, .fl-bar.stop_container, .fl-bar.restart_container { background: rgba(160, 172, 190, 0.16); border-color: rgba(160, 172, 190, 0.6); }
+.fl-bar.cpu_throttle { background: rgba(79, 176, 236, 0.14); border-color: rgba(79, 176, 236, 0.55); }
+.fl-bar span { display: block; padding: 0 8px; font-size: 11.5px; line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stretch-tiles.stretch-on { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; margin-top: 16px; }
+#stretch-tiles .tile { margin: 0; }
+.fix-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 4px 12px; margin-top: 12px; }
+.fix-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.fix-check .ok { color: var(--green-fg); } .fix-check .bad { color: var(--red-fg); }
+#stretch-tiles + .tile { margin-top: 16px; }
+.kv.fix-sides { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
