@@ -35,8 +35,12 @@ The default per-service liveness check in upstream Compose targets `http://<cont
 | `backend/app/agents/telemetry.py` | Loopback Prometheus polling, normalization, staleness/coverage | Call remote scrape targets or interpret missing samples as healthy |
 | `backend/app/agents/planning.py` | Fixed candidate generation, history-aware weighted ranking and safety filtering | Execute experiments or treat LLM text as policy |
 | `backend/app/orchestrator.py` | Specialist-agent coordination and persistence boundary | Collapse target Ditto services and our agents into one topology |
-| `backend/app/main.py` | Loopback control-plane API and static UI | Enable fault execution in this build |
-| `frontend/` | Agent status, graph, telemetry, baseline, and candidate inspection | Claim a live experiment occurred when the API/target is unavailable |
+| `backend/app/graph.py` | Optional LangGraph agent graph over the orchestrator methods; pauses before approval | Import or call anything that executes |
+| `backend/app/main.py` | Loopback API and static UI | Enable fault execution (`execute` always returns `503`) |
+| `simulator/`, `monitor/` | Fleet workload, write/search/SSE-freshness probes, SLI math | Report a healthy baseline when samples are missing |
+| `safety/` | Policy, runner, kill switch, watchdog, Docker adapter, recovery, scoring, operator CLI | Run anything not in the policy's fixed action table |
+| `ai/` | Dependency map, diagnosis, findings, ranking, report export, optional Groq wording | Execute anything or change ids, severity or evidence |
+| `frontend/` | Dashboard: overview, system map, experiments and agent graph, runs, safety | Claim a live experiment occurred when the API/target is unavailable |
 | `schemas/` and `configs/` | Versioned agent handoffs and deterministic policy | Permit arbitrary actions or non-local targets |
 
-Current implementation is a read-only discovery/telemetry/planning slice. Fault execution returns `503` intentionally; no Docker control adapter is implemented or verified.
+The API and dashboard never execute. Fault execution exists only in the separate operator process (`python -m safety.cli execute`), behind `CHAOS_EXECUTION_ENABLED=true` and a typed human approval.

@@ -2,6 +2,8 @@
 
 This plan follows [`CLAUDE.md`](../CLAUDE.md), which is the source of truth for architecture, thresholds and milestones. If the two disagree, update this file to match CLAUDE.md.
 
+**Status (2026-10-11):** this is the Day-1 work plan, kept for history. Everything in it has shipped: execution is enabled only in the operator CLI (the API `execute` stays 503), five fault types exist, and the agents can optionally be orchestrated with LangGraph ([ADR 0003](decisions/0003-langgraph-agent-orchestration.md)). Current state: [CLAUDE.md](../CLAUDE.md) and [README.md](../README.md).
+
 Assign people by role during the team meeting; names are intentionally omitted. **Each person owns an individual setup/preflight task as well as their module**, so nobody is blocked waiting for one person to configure the whole repo.
 
 ## Common Setup, Done by Everyone

@@ -2,7 +2,7 @@
 
 ## Inputs and Candidate Generation
 
-Inputs are a versioned service graph with edge provenance/confidence, baseline metrics and workload, prior predictions/results, the fixed experiment catalog, and deterministic safety policy. The MVP catalog contains one action: restart one allow-listed local Ditto container for a bounded interval. Generate at most one candidate per allowed target; do not generate shell commands or arbitrary fault payloads.
+Inputs are a versioned service graph with edge provenance/confidence, baseline metrics and workload, prior predictions/results, the fixed experiment catalog, and deterministic safety policy. The catalog is the five fixed policy actions (restart, stop, pause, CPU throttle, traffic burst), each limited to its allowed targets and a bounded duration. Generate at most one candidate per allowed target and action; never generate shell commands or arbitrary fault payloads.
 
 Candidates record target/action/duration, preconditions, hypothesis, predicted affected components, metric evidence, residual risk, expected information value, and approval requirement. Every prediction links to source observation/graph IDs. A candidate may be withheld when its graph confidence or telemetry coverage is inadequate.
 
@@ -45,6 +45,10 @@ Never treat an LLM confidence score as measured probability. Do not send raw log
 7. Execute the fixed adapter action; compare actual and predicted effects and recovery.
 8. Record evidence and update coverage/calibration. Generate optional grounded hypotheses and recommendations.
 9. Recompute future priorities from the updated history. Keep score/ranking versioned for reproducibility.
+
+## Orchestration
+
+The planning workflow above can run as an optional LangGraph graph (`backend/app/graph.py`): `discover` → `measure` → `plan`, with steps 1–3 as gate edges (no graph ends the run; a missing, stale or low-coverage baseline routes back to `measure` once to capture a fresh one, or ends with the reason) and an interrupt before step 5, the human approval. The graph ends at approval and does not execute step 7. A second graph covers steps 7–8 after a run: `diagnose` → `compare` (predicted vs observed) → `report` (deterministic findings, optional Groq rewording). Without LangGraph installed the same node functions run in sequence.
 
 ## Evaluation of Planner Quality
 

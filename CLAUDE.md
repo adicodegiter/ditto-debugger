@@ -82,7 +82,8 @@ volume (rollback deletes it). Combined failures (two staged faults, one kill swi
 ## Repo layout
 ```
 backend/app/
-  main.py, settings.py
+  main.py, settings.py, orchestrator.py
+  graph.py                                         # optional LangGraph agent graph (advisory only)
   agents/discovery.py, mapping.py, planning.py     # Agents 1 and 3
 simulator/          # bootstrap + fleet workload (Agent 2)
 monitor/            # write, search, freshness probes; SLI math (Agent 2)
@@ -116,9 +117,11 @@ TOOLS.md            # tools, libraries, AI models (for the team form)
 | M3: safety gate | Done: live kill switch (2 s polls, policy-only limits), watchdog, fixed actions, typed approvals, API `execute` always 503, dry run |
 | M4: real `things-search` restart + forced kill-switch abort | Done; `docs/m4-results.md` |
 | M5: fault types, predicted vs observed, ranked findings | Done. Restart, pause and burst run live with recovery verified (`docs/m5-results.md`, records in `docs/evidence/windows-host/`); per-SLI predictions and diagnosis on real runs; ranked findings (`python -m ai.ranking`); 5.7 re-run: a failing search now hangs 3.0 s instead of 10.0 s |
-| M6: score, deliverables | Score done (`score_components` + `score_inputs`); dashboard checked live (`docs/dashboard-check.md`); architecture page rewritten. **Pending: findings report `docs/findings-report.md` (P4), demo video (P3), team form submission (P1)** |
+| M6: score, deliverables | Score done (`score_components` + `score_inputs`); dashboard checked live (`docs/dashboard-check.md`); architecture page rewritten; findings report `docs/findings-report.md` done (overall score 83.69). **Pending: demo video (P3), team form submission (P1)** |
+| Stretch goals | Re-run after a fix (`search-fail-fast`) verified and combined failures run live (Mac stack; `docs/rerun-after-fix.md`, `docs/combined-failures.md`) |
+| Agent orchestration | Optional LangGraph agent graph (`backend/app/graph.py`, `langgraph==1.2.12` in `requirements-graph.txt`): discover → measure → plan, gate edges on the baseline, pauses before human approval, never executes; post-run graph diagnose → compare → report. Without LangGraph the same nodes run in sequence. Dashboard: Experiments → Agent graph; API `GET /api/v1/agent-graph` |
 | Agent 3 LLM | Optional Groq adapter (`ai/llm.py`, `ai/explain.py`), off unless `AI_PROVIDER=groq`; deterministic findings are the fallback |
-| Tests | 148 passing on `main` (`python -m unittest discover -s tests`) |
+| Tests | 273 passing (`python -m unittest discover -s tests`; 1 LangGraph-only test is skipped when it is not installed) |
 
 **How to run an experiment:** `docs/m4-runbook.md` (`safety.cli baseline → plan → approve → execute [--dry-run|--forced-test]`).
 Only the operator CLI executes; it needs `CHAOS_EXECUTION_ENABLED=true` and an approval typed by a human.

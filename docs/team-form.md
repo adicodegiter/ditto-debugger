@@ -33,6 +33,8 @@ Docker Desktop 24.0.6 with Docker Compose v2.23 (WSL2, Windows 11), Python 3.12,
   findings are used. It has no tools and cannot execute anything; ids, severity, evidence and confidence
   stay deterministic, and its output is schema-checked. The planner, diagnosis, ranking and score are
   always deterministic.
+- **Agent orchestration (no model):** LangGraph chains the three agents (discover → measure → plan)
+  and stops before a human approves. It calls no model by itself and cannot execute anything.
 - **During development:** Claude Code (Claude Opus 5.5 and Claude Sonnet 5.5) and GitHub Copilot, for
   scaffolding, deployment, scripts, tests, reviews and documentation.
 
@@ -45,6 +47,7 @@ Docker Desktop 24.0.6 with Docker Compose v2.23 (WSL2, Windows 11), Python 3.12,
 | requests | Apache-2.0 | Workload, probes, smoke test |
 | httpx (dev) | BSD-3-Clause | API tests |
 | jsonschema (dev) | MIT | Contract validation |
+| LangGraph 1.2.12 (optional) | MIT | Orchestrates the three advisory agents as a state graph that pauses before human approval; never executes. Without it the same agents run in sequence |
 
 Application under test: Eclipse Ditto 3.9.8 (EPL-2.0), MongoDB 7.0.14 (SSPL),
 nginx 1.27.2-alpine (BSD-2-Clause). Dashboard: plain HTML/CSS/JS, no libraries.

@@ -38,6 +38,9 @@ flowchart LR
     API --> A
     API --> R
     API -.->|always 503| CLI
+    LG[Optional LangGraph agent graph\ndiscover → measure → plan\npauses before approval] -.-> D
+    LG -.-> O
+    LG -.-> PL
 ```
 
 ## Three Agents and One Control Plane
@@ -48,6 +51,7 @@ flowchart LR
 | Agent 2: workload and measurement | Sends synthetic vehicle updates, probes writes/search/freshness, and saves JSON Lines observations and healthy baselines. | Never calls a baseline healthy when required samples are missing. |
 | Agent 3: planner and analyst | Ranks allowlisted candidates from graph impact, novelty, uncertainty, telemetry, baseline, and history; generates evidence-linked findings. | Recommends only; never executes Docker or changes policy. |
 | Deterministic control plane | Revalidates policy, approval, baseline, target, action, duration, telemetry, rollback, recovery, and audit state. | Only the separate operator process may run fixed local Docker actions. |
+| Agent graph (optional orchestration) | Chains the three agents as a LangGraph state graph (`backend/app/graph.py`) with gate edges and an interrupt before human approval; a second graph runs post-run diagnose → predicted vs observed → findings. | Ends at approval; imports nothing that executes (tested). Without LangGraph the same nodes run in sequence. |
 
 ## Evidence Flow
 
@@ -69,15 +73,17 @@ flowchart LR
 
 ## How the AI Decides
 
-The current planner is deterministic rather than an autonomous model. It filters candidates through the policy, then ranks eligible services with `weighted_heuristic_v1` using graph impact, novelty, and uncertainty. Every recommendation carries a hypothesis, predicted impact, risk, and evidence references. Optional language-model explanations can sit on top of these records, but they cannot alter safety decisions or execute actions.
+The planner is deterministic rather than an autonomous model. It filters candidates through the policy, then ranks eligible target/action pairs with `weighted_heuristic_v1` (0.40 graph impact + 0.35 novelty + 0.25 uncertainty, from the run history). Every recommendation carries a hypothesis, per-SLI predictions (`hold` / `degrade` / `fail`), risk, and evidence references. After a run, diagnosis compares predicted with observed per SLI, and the findings and resilience score come from the run record. The optional Groq adapter (`AI_PROVIDER=groq`) only rewords finding text; it cannot alter safety decisions or execute actions.
+
+The agents can be orchestrated as a LangGraph graph: `discover` (Agent 1) → `measure` (Agent 2) → `plan` (Agent 3) → pause before `approval`. Conditional edges are the planning gates: no graph ends the run; a missing, stale, under-80%-coverage or graph-mismatched baseline goes back to `measure` once to capture a fresh one (the first pass reuses the supplied or latest stored baseline) or ends with the reason, and a replaced baseline is named in `baseline_note`. The graph never runs a fault; the approved plan is executed only by the operator CLI.
 
 ## What the Dashboard Shows
 
-The local dashboard reads the versioned API for topology, agent state, telemetry coverage, baselines, proposals, approvals, run history, audit evidence, and findings. It is an inspection and approval surface; it does not claim that a fault occurred when the target or telemetry is unavailable.
+The local dashboard reads the versioned API for topology, agent state, live SLIs, baselines, the agent graph, proposals, approvals, run history (timeline, kill-switch charts, recovery, findings), audit evidence, and policy. It is an inspection and approval surface; it does not claim that a fault occurred when the target or telemetry is unavailable, and it cannot execute.
 
 ## Current Scope
 
-The first controlled experiment is a short `things-search` restart/stop. Broader faults such as pause, resource throttling, network delay, or traffic burst require their own fixed action, rollback, and recovery proof before they are enabled. The Ditto stack and all experiment data remain local and synthetic.
+Five fixed fault actions are enabled in the policy, each with its own rollback: `restart_container` (10 s), `stop_container` (45 s) and `pause_container` (30 s) on `gateway` or `things-search`; `cpu_throttle` (45 s, the only action allowed on `mongodb`); and `traffic_burst` (45 s, a bounded extra workload through nginx on separate twins). Restart, pause and burst have run live with recovery verified (`docs/m5-results.md`); combined failures (two staged faults, one kill switch) and a re-run after a server-side fix are documented as stretch goals. Network delay and disk fill are not implemented. The Ditto stack and all experiment data remain local and synthetic.
 # Architecture Overview
 
 ```mermaid

@@ -1,74 +1,124 @@
-# API Contracts (Planned)
+# API Contracts
 
-No API server exists yet. The following routes are the planned local control-plane contract. The machine-readable [OpenAPI 3.1 document](../schemas/openapi.yaml) defines the paths and request/response records; JSON Schema files in [schemas/](../schemas/) define service, experiment, run, and finding records; examples live in `schemas/examples/`. Initial contract version is `1.0`. Breaking changes require a new API version and a data migration plan. The API binds to loopback only.
+The workbench API is FastAPI (`backend/app/main.py`), served on loopback only:
+`python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000`. The live, generated
+schema is at `http://127.0.0.1:8000/openapi.json`. JSON Schemas for the shared records (service, graph,
+experiment, plan, run, observation, diagnosis, finding) are in [schemas/](../schemas/), with examples in
+`schemas/examples/`; [schemas/openapi.yaml](../schemas/openapi.yaml) is the original contract for the core
+routes. Records carry `schema_version` (`1.0`); a breaking change needs a new version and a migration.
+
+**The API never executes a fault.** `POST /api/v1/experiments/{id}/execute` always returns `503`. Approved
+experiments run only from the operator CLI (`python -m safety.cli execute <id>`), a separate process that
+needs `CHAOS_EXECUTION_ENABLED=true` and a typed human approval.
 
 ## Endpoints
 
-| Method and path | Purpose | Side effect / guard |
-| --- | --- | --- |
-| `GET /api/v1/health` | Workbench health and dependency status | Read only; report Ditto/Prometheus as unavailable without exposing secrets |
-| `GET /api/v1/architecture` | Current graph, provenance and confidence | Read only; tag static vs inferred edges |
-| `GET /api/v1/telemetry?from=<RFC3339>&to=<RFC3339>` | Normalized metric observations and coverage | Read only; bounded time range |
-| `POST /api/v1/experiments/plan` | Generate candidates from graph, telemetry and history | Writes proposed plans only; never runs a fault |
-| `GET /api/v1/experiments/{experiment_id}` | Read candidate, policy decision and approval status | Read only |
-| `POST /api/v1/experiments/{experiment_id}/approval` | Approve or reject the immutable candidate | Human identity, reason, expiry and candidate hash required; does not execute |
-| `POST /api/v1/experiments/{experiment_id}/execute` | Ask the isolated local runner to execute an approved experiment | Revalidate approval, policy, baseline, target and concurrency; reject if any check fails |
-| `GET /api/v1/runs/{run_id}` | Read run state, prediction, observations, cleanup and recovery | Read only |
-| `GET /api/v1/findings?run_id=<id>` | Read evidence-backed findings and score details | Read only |
+| Method and path | Purpose | Side effect / errors |
+|---|---|---|
+| `GET /api/v1/health` | Workbench process state, `execution_enabled`, agent status | Read only. Does not imply Ditto or Prometheus is reachable |
+| `GET /api/v1/agents` | Agent status (discovery, mapping, telemetry, planning) | Read only |
+| `GET /api/v1/architecture` | Current versioned graph from the manifests | Read only; `422` if a manifest cannot be parsed |
+| `POST /api/v1/discovery/refresh` | Re-run discovery and mapping | Reads manifests only; `422` on a parse error |
+| `GET /api/v1/telemetry` | Prometheus observations and coverage (optional) | Read only |
+| `GET /api/v1/dependency-map` | `ai/dependency_map.json` (nodes, edges with provenance, SLI tags) | Read only |
+| `GET /api/v1/slis?window=30` | Live SLIs over the last N seconds (5–600) from `data/metrics/*.jsonl` | Read only; `live: false` when no recent samples |
+| `GET /api/v1/slis/series?minutes=5&bucket=10` | Bucketed SLI series for charts | Read only |
+| `GET /api/v1/baselines?limit=20` | Stored baselines | Read only |
+| `POST /api/v1/baselines` | Capture a baseline from the latest live workload run | Writes a baseline; `503` with the reason if refused (under 120 s of samples, stale run, unhealthy or missing SLI) |
+| `POST /api/v1/experiments/plan` | Rank candidates for a baseline (`{"baseline_id", "max_candidates": 1–10}`) | Writes a proposed plan (`201`); never runs a fault. `404` unknown baseline, `503` if a planning gate fails |
+| `GET /api/v1/experiments?limit=50` | Stored plans with candidates and approval state | Read only |
+| `GET /api/v1/experiments/{id}` | One candidate with `candidate_hash`, `approval_status`, `approval` | Read only; `404` |
+| `GET /api/v1/experiments/{id}/status` | Approval status and `execution_enabled` | Read only; `404` |
+| `POST /api/v1/experiments/{id}/approval` | Record a human decision (`decision`, `reason`, `candidate_hash`) | Writes an approval (`201`); does not execute. `404` unknown id, `409` hash mismatch or decision already recorded |
+| `POST /api/v1/experiments/{id}/execute` | — | **Always `503`**: execution is CLI-only |
+| `GET /api/v1/runs?limit=50`, `GET /api/v1/runs/{run_id}` | Run records (timeline, observations, recovery, diagnosis, score) | Read only; `404` |
+| `GET /api/v1/runs/{run_id}/interaction` | Combined-failure verdict (`amplified`, `dampened`, `no_interaction`, `inconclusive`) with the per-SLI comparison, recomputed from the stored solo runs (same fixes live, recorded earlier); `status: not_compound` for a single-fault run | Read only; `404` unknown run |
+| `GET /api/v1/findings?run_id=` | Findings, optionally for one run | Read only; `404` unknown run |
+| `GET /api/v1/findings/ranked` | Findings ranked across runs (severity, then confidence) | Read only |
+| `GET /api/v1/audit?limit=100` | Append-only audit events | Read only |
+| `GET /api/v1/policy` | Summary of `configs/experiment-policy.yaml` | Read only |
+| `GET /api/v1/watchdog?limit=50` | Watchdog log (`data/experiments/watchdog.jsonl`) | Read only |
+| `GET /api/v1/remediations` | Registered fixes (`configs/remediations.yaml`), the latest before/after run pair for each with its verdict (`verified`, `not_verified`, `inconclusive`), and whether the last run recorded each fix as live | Read only; never runs Docker: the live state is the deployment stamp the operator CLI recorded on the run (`api_reads_docker: false`) |
+| `GET /api/v1/agent-graph` | Agent graph structure (nodes, edges with gate conditions, `interrupt_before`), engine (`langgraph` or `sequential-fallback`) and the last planning state | Read only; never runs a node |
+| `POST /api/v1/agent-graph/run` | Run discover → measure → plan and stop before approval (`{"max_candidates": 1–10, "baseline_id"?}`) | Same writes as `POST /baselines` + `/experiments/plan` (`201`); a failed gate ends with `gate` and `reason`; `baseline_note` names a requested or stored baseline that was rejected or replaced. Never executes |
+| `POST /api/v1/agent-graph/resume` | Resume a paused run at the approval node | Reports each candidate's approval status and next CLI step; `409` if nothing is paused. Never executes |
+| `GET /`, `GET /lab` and `/assets/*` | Dashboard (`frontend/index.html`), the lab view (`frontend/lab.html`) and their assets | Static files |
 
-## Request/Response Examples
+## Examples
 
-Plan a candidate (the response uses the `experiment` schema):
+Plan from a baseline:
 
 ```http
 POST /api/v1/experiments/plan
 Content-Type: application/json
 
-{"baseline_id":"baseline-2026-10-10-01","max_candidates":3}
+{"baseline_id": "baseline-96847667f2d2", "max_candidates": 3}
 ```
 
 ```json
 {
-  "plan_id": "plan-2026-10-10-01",
+  "plan_id": "plan-f25b7b62ee51",
+  "ranking_method": "weighted_heuristic_v1",
   "candidates": [
     {
-  "schema_version": "1.0",
-  "id": "restart-gateway-10s",
-  "target_component": "gateway",
-  "action": "restart_container",
-  "duration_seconds": 10,
-  "hypothesis": "The API entry service becomes unavailable briefly and returns after restart without persistent data loss.",
-  "predicted_impacts": ["gateway", "ditto-api-clients"],
-  "information_gain": 0.7,
-  "risk_score": 0.2,
-  "evidence_refs": ["architecture:ditto-gateway", "baseline:latest"],
-  "approval_required": true
+      "schema_version": "1.0",
+      "id": "restart_container-things-search-5fd1a78b855b5a2d",
+      "target_component": "things-search",
+      "action": "restart_container",
+      "duration_seconds": 10,
+      "predicted_slis": {"write": "hold", "search": "fail", "freshness": "hold"},
+      "risk_score": 0.3,
+      "evidence_refs": ["graph:eb1685d17ee80fb3", "baseline:baseline-96847667f2d2"],
+      "approval_required": true,
+      "selection_score": 0.68,
+      "reason": "things-search (Things-Search): 1 direct graph dependent(s): gateway; …"
     }
   ],
-  "policy_rejections": []
+  "policy_rejections": [],
+  "execution_enabled": false
 }
 ```
 
-Approval is a separate human action and execution is a separate request:
+The response also carries `hypothesis`, `predicted_impacts`, `information_gain` and `score_terms` per candidate.
+`candidate_hash` and `approval_status` (`pending`, `approved`, `rejected`) are added by the store; read them with
+`GET /api/v1/experiments/{id}` before approving.
+
+Record a human approval. The dashboard and CLI put the approver's name in the reason as
+`approved_by=<name>; <reason>`; the hash binds the approval to the immutable candidate. Approvals expire after
+`approval.expires_after_minutes` (10) and are single use.
 
 ```http
-POST /api/v1/experiments/restart-gateway-10s/approval
+POST /api/v1/experiments/restart_container-things-search-5fd1a78b855b5a2d/approval
 Content-Type: application/json
 
-{"decision":"approve","reason":"Disposable local demo; baseline verified.","candidate_hash":"sha256:..."}
+{"decision": "approve", "reason": "approved_by=radhika; demo", "candidate_hash": "sha256:2ed6…"}
 ```
 
-The server derives the approver from the local authenticated UI/session context; never trust an identity supplied in the request body. The initial single-operator implementation must document its local identity source before approval is implemented.
+Run the agent graph (advisory):
 
 ```http
-POST /api/v1/experiments/restart-gateway-10s/execute
+POST /api/v1/agent-graph/run
 Content-Type: application/json
 
-{"approval_id":"approval-001"}
+{"max_candidates": 3}
 ```
 
-The execute response must identify an asynchronous run, e.g. `{"run_id":"run-local-001","status":"approved"}`. An implementation must use `409 Conflict` for stale state/approval or active experiment, `422 Unprocessable Content` for policy rejection, `503 Service Unavailable` for failed preconditions/dependencies, and `404` for unknown IDs. Exact error envelope is to be frozen with the first implementation and covered by contract tests.
+```json
+{
+  "engine": "langgraph",
+  "trace": ["discover", "measure", "plan"],
+  "gate": "awaiting_approval",
+  "reason": "a human must approve one candidate",
+  "baseline_id": "baseline-96847667f2d2",
+  "plan_id": "plan-f25b7b62ee51",
+  "interrupted_before": ["approval"]
+}
+```
 
-## Security and Compatibility
+## Security and compatibility
 
-Use request/response validation against schemas and reject unknown action names. Approval and execution are distinct; model output cannot impersonate an approver. Never accept a command line, image name, host, Compose file path, or Docker API body from a request. Limit telemetry windows and candidate count. Add authentication before any non-loopback use. API response records include `schema_version`; unknown major versions fail closed. Approval audit records and safety decisions are append-only for the MVP.
+- Loopback only; never bind to `0.0.0.0`. There is no authentication, so add it before any non-loopback use.
+- Requests are validated by Pydantic models. No route accepts a command line, image name, host, Compose file path or
+  Docker API body.
+- Approval and execution are separate; neither the agent graph nor the optional LLM can approve or execute.
+- Telemetry windows and candidate counts are bounded by query/body limits.

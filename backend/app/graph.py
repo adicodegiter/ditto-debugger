@@ -6,9 +6,9 @@ The nodes WRAP existing AgentOrchestrator methods; they do not reimplement them:
     analysis:  diagnose (Agent 3) -> compare (predicted vs observed) -> report (findings) -> END
 
 Gates are conditional edges, the same checks the planner enforces: no graph ends the run,
-a missing / stale / low-coverage baseline routes back to measure (bounded retries) or ends
-with a reason. The planning graph is compiled with interrupt_before=["approval"] and ENDS at
-approval: approving is a typed human decision (API / operator CLI), and executing is only
+a rejected baseline (missing / stale / low coverage / other graph version) routes back to
+measure once to capture a fresh one, or ends with the reason. The planning graph is compiled
+with interrupt_before=["approval"] and ENDS at approval: approving is a typed human decision (API / operator CLI), and executing is only
 ever done by the operator CLI (python -m safety.cli execute). No node in this module may
 import or call the runner, the Docker adapter or any execute path
 (tests/test_agent_graph.py enforces this).
@@ -45,8 +45,8 @@ PLANNING_EDGES = (
     ("discover", "measure", "graph available"),
     ("discover", END, "no graph"),
     ("measure", "plan", "baseline fresh, coverage >= 80%, matches graph"),
-    ("measure", "measure", "baseline missing / stale / low coverage (bounded retry)"),
-    ("measure", END, "gate failed after retries"),
+    ("measure", "measure", "reused baseline missing / stale / low coverage: capture a fresh one"),
+    ("measure", END, "fresh capture refused or rejected"),
     ("plan", "approval", "interrupt: human approval"),
     ("approval", END),
 )
@@ -56,10 +56,12 @@ ANALYSIS_EDGES = ((START, "diagnose"), ("diagnose", "compare"), ("compare", "rep
 class PlanningState(TypedDict, total=False):
     max_candidates: int
     max_measure_attempts: int
+    requested_baseline_id: str
     baseline_id: str
     graph_version: str
     graph_status: str
     measure_attempts: int
+    baseline_note: str
     gate: str
     reason: str
     plan_id: str
@@ -127,25 +129,34 @@ def make_planning_nodes(orchestrator: Any) -> dict[str, Callable[[PlanningState]
         return update
 
     def measure(state: PlanningState) -> dict[str, Any]:
-        """Agent 2: reuse the supplied (or latest stored) baseline if it passes the gates, else capture one."""
+        """Agent 2. Attempt 1 reuses the supplied (or latest stored) baseline; a later attempt captures a new one.
+
+        Each attempt does something different, so routing back to measure is never a blind repeat. When a
+        baseline is replaced, `baseline_note` says which one and why.
+        """
         attempts = state.get("measure_attempts", 0) + 1
-        baseline = None
-        reason = ""
+        graph_version = state.get("graph_version")
+        update: dict[str, Any] = {"measure_attempts": attempts, "trace": _trace(state, "measure")}
         if attempts == 1:
-            if state.get("baseline_id"):
-                baseline = orchestrator.repository.get_baseline(state["baseline_id"])
-                reason = "" if baseline else "supplied baseline was not found"
-            else:
-                baseline = next(iter(orchestrator.repository.list_baselines(1)), None)
-        if baseline is None or not baseline_gate(orchestrator, baseline, state.get("graph_version"))[0]:
+            supplied = state.get("requested_baseline_id")
+            baseline = orchestrator.repository.get_baseline(supplied) if supplied else next(iter(orchestrator.repository.list_baselines(1)), None)
+            ok, reason = baseline_gate(orchestrator, baseline, graph_version)
+            if baseline is None:
+                reason = f"supplied baseline {supplied} was not found" if supplied else "no stored baseline"
+            elif not ok:
+                reason = f"{'supplied' if supplied else 'latest stored'} baseline {baseline['baseline_id']} rejected: {reason}"
+        else:
             try:
                 baseline = orchestrator.capture_baseline()
+                ok, reason = baseline_gate(orchestrator, baseline, graph_version)
             except ValueError as error:
-                baseline, reason = None, str(error)
-        ok, gate_reason = baseline_gate(orchestrator, baseline, state.get("graph_version"))
-        update: dict[str, Any] = {"measure_attempts": attempts, "gate": "pass" if ok else "baseline_rejected",
-                                  "reason": "ok" if ok else (reason or gate_reason), "trace": _trace(state, "measure")}
-        if baseline is not None:
+                baseline, ok, reason = None, False, str(error)
+            if ok and state.get("baseline_note"):
+                update["baseline_note"] = f"{state['baseline_note']}; captured {baseline['baseline_id']} instead"
+        if not ok and attempts == 1:
+            update["baseline_note"] = reason
+        update.update(gate="pass" if ok else "baseline_rejected", reason="ok" if ok else reason)
+        if ok:
             update["baseline_id"] = baseline["baseline_id"]
         return update
 
@@ -255,8 +266,8 @@ class AgentGraph:
         initial: PlanningState = {"max_candidates": max_candidates, "max_measure_attempts": max_measure_attempts,
                                   "measure_attempts": 0, "trace": []}
         if baseline_id:
-            initial["baseline_id"] = baseline_id
-        self.last_thread_id = f"plan-{uuid.uuid4().hex[:12]}"
+            initial["requested_baseline_id"] = baseline_id  # baseline_id is set only once a baseline passes the gate
+        self.last_thread_id = f"graph-{uuid.uuid4().hex[:12]}"
         if self.use_langgraph:
             config = {"configurable": {"thread_id": self.last_thread_id}}
             state = dict(self._planning.invoke(initial, config))

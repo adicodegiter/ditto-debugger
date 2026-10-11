@@ -25,7 +25,7 @@ Running list for the team submission form. Add an entry whenever you introduce s
 | PyYAML 6.0 | Compose/config parsing |
 | requests 2.32 | Workload generator, probes, smoke test |
 | httpx 0.27, jsonschema 4.23 | Tests and contract validation (dev) |
-| LangGraph 1.2.12 (optional, `requirements-graph.txt`) | Orchestrates the three advisory agents as a state graph with gate edges and a human-approval interrupt (`backend/app/graph.py`); falls back to sequential calls when not installed. Never executes faults |
+| LangGraph 1.2.12 (optional, `requirements-graph.txt`, MIT) | Orchestrates the three advisory agents as a state graph with gate edges and a human-approval interrupt (`backend/app/graph.py`); falls back to sequential calls when not installed. Never executes faults |
 | Python standard library (`sqlite3`, `unittest`, `subprocess`, `threading`) | Run/approval store, tests, fixed Docker commands, concurrent probes |
 
 The dashboard (`frontend/`) is plain HTML, CSS and JavaScript with no third-party libraries.

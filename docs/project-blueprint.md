@@ -1,6 +1,6 @@
 # Project Blueprint
 
-**Status:** blueprint and contracts only. Verified upstream facts in this document were checked against Eclipse Ditto's official repository and documentation on 2026-10-10. Upstream `master` and online development documentation move; use the pinned release and verify before implementation.
+**Status:** Day-1 blueprint, kept for history. The system is now built; current state is in [README.md](../README.md), [CLAUDE.md](../CLAUDE.md) and [architecture.md](architecture.md). Verified upstream facts in this document were checked against Eclipse Ditto's official repository and documentation on 2026-10-10. Upstream `master` and online development documentation move; use the pinned release and verify before implementation.
 
 ## Problem and Users
 
