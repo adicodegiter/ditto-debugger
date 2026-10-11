@@ -95,12 +95,23 @@ const ACTIONS = {
   pause_container: { label: "Pause", icon: "pause", rollback: "unpause the container" },
   cpu_throttle: { label: "CPU throttle", icon: "gauge", rollback: "restore the CPU quota" },
   traffic_burst: { label: "Traffic burst", icon: "zap", rollback: "stop the burst process" },
+  compound: { label: "Combined failure", icon: "flask", rollback: "roll back every fault, newest first" },
 };
 const SHORT_ACTION = { restart: "restart_container", stop: "stop_container", pause: "pause_container", throttle: "cpu_throttle", burst: "traffic_burst" };
 const actionLabel = (action) => ACTIONS[action]?.label || fmt.sentence(action || "unknown action");
+// Stretch goals: a combined run has two staged faults (run.faults) and a "+"-joined target;
+// a run records which registered fixes were live when it started (run.deployment).
+const isCompound = (run) => run?.kind === "compound" || String(run?.diagnosis?.action || "").startsWith("compound:");
+const targetText = (target) => String(target ?? "").split("+").filter(Boolean).join(" + ");
+const plannedSeconds = (run) => num(run?.action_params?.duration_seconds)
+  ?? (run?.faults?.length ? Math.max(...run.faults.map((f) => (f.start_offset_seconds ?? 0) + (f.duration_seconds ?? 0))) : null);
+const fixesOf = (run) => (Array.isArray(run?.deployment?.remediations_active) ? run.deployment.remediations_active : []);
+const faultsText = (run) => (run.faults || []).map((f) => `${actionLabel(f.action)} on ${f.target} at +${f.start_offset_seconds ?? 0} s for ${f.duration_seconds ?? "?"} s`).join(", then ");
+const runSubject = (run, action, target) => (isCompound(run) ? `Combined failure: ${faultsText(run)}` : `${actionLabel(action)} on ${target}`);
 
 function runAction(run) {
   const diagnosis = run.diagnosis || {};
+  if (isCompound(run)) return { action: "compound", target: run.target_component || diagnosis.target_component || (run.faults || []).map((f) => f.target).join("+") };
   if (diagnosis.action) return { action: diagnosis.action, target: diagnosis.target_component };
   const match = /^([a-z]+)-(.+?)-[0-9a-f]{16}$/.exec(run.experiment_id || "");
   return match ? { action: SHORT_ACTION[match[1]] || match[1], target: match[2] } : { action: null, target: null };
@@ -471,6 +482,7 @@ function renderMap(container, graph, limits, opts = {}) {
   }
   const fault = opts.fault || null;
   const impacted = new Set(fault?.impacted || []);
+  const attacked = new Map((fault?.targets || (fault?.target ? [{ id: fault.target, label: fault.label }] : [])).map((t) => [t.id, t.label]));
   for (const node of model.nodes) {
     const p = pos.get(node.id);
     const wb = p.col === -1;
@@ -478,14 +490,15 @@ function renderMap(container, graph, limits, opts = {}) {
     const role = wrap(roleOf(node), 23);
     const pips = node.source !== "compose" ? "" : SLI_LETTERS.map(([sli, letter], i) => `<g class="sli-pip ${slis.includes(sli) ? "on" : ""}" transform="translate(${NW - 62 + i * 18},${NH - 24})"><rect width="16" height="16" rx="4"/><text x="8" y="12" text-anchor="middle">${letter}</text><title>${esc(sli)} SLI ${slis.includes(sli) ? "passes through here" : "does not pass here"}</title></g>`).join("");
     let badge = "";
-    if (opts.policyOverlay !== false && !(fault && fault.target === node.id)) {
+    if (opts.policyOverlay !== false && !attacked.has(node.id)) {
       if (allowed.has(node.id)) badge = `<g class="badge testable" transform="translate(0,-20)"><rect width="66" height="16"/><text x="33" y="12" text-anchor="middle">testable</text></g>`;
       if (denied.has(node.id)) badge = `<g class="badge protected" transform="translate(0,-20)"><rect width="72" height="16"/><text x="36" y="12" text-anchor="middle">protected</text></g>`;
     }
     let overlay = "";
-    if (fault && fault.target === node.id) {
-      const w = Math.min(fault.label.length * 6.7 + 16, 300);
-      overlay = `<rect class="ring-fault" x="-5" y="-5" width="${NW + 10}" height="${NH + 10}" rx="12"/><g class="fault-chip" transform="translate(-5,-30)"><rect width="${w}" height="20" rx="5"/><text x="8" y="14">${esc(fault.label)}</text></g>`;
+    if (attacked.has(node.id)) {
+      const label = attacked.get(node.id) || "";
+      const w = Math.min(label.length * 6.7 + 16, 300);
+      overlay = `<rect class="ring-fault" x="-5" y="-5" width="${NW + 10}" height="${NH + 10}" rx="12"/><g class="fault-chip" transform="translate(-5,-30)"><rect width="${w}" height="20" rx="5"/><text x="8" y="14">${esc(label)}</text></g>`;
     } else if (impacted.has(node.id)) {
       overlay = `<rect class="ring-impact" x="-4" y="-4" width="${NW + 8}" height="${NH + 8}" rx="11"/>`;
     }
@@ -498,6 +511,13 @@ function renderMap(container, graph, limits, opts = {}) {
   container.innerHTML = `<div class="map-wrap"><svg class="map" viewBox="0 0 ${model.width} ${model.height}" role="img" aria-label="System and dependency map: ${model.nodes.length} components">${parts.join("")}</svg></div>
     <div class="inspector" aria-live="polite">${opts.lane ? `<span>${icon("route")} <strong>${esc(fmt.sentence(opts.lane))} request path:</strong> ${["fleet-workload", ...lanePath].map(esc).join(" → ")}</span><span class="muted">Only the end-to-end p95 is measured; there is no per-hop latency.</span>${opts.laneNote ? `<span>${opts.laneNote}</span>` : ""}`
       : `<span class="muted">${icon("info")} Hover or focus a component to see what it touches and what fails with it. Click for details.${hiddenStartup && !opts.showStartup ? ` ${hiddenStartup} startup-order edges inside Ditto services are hidden.` : ""}</span>`}</div>`;
+  // A fault label sits above its component; hide any edge label it would cover (they can collide when two
+  // components are attacked, or when the attacked component has a labelled edge just above it).
+  const chips = [...container.querySelectorAll(".fault-chip rect")].map((r) => r.getBoundingClientRect());
+  if (chips.length) container.querySelectorAll(".edge-label").forEach((label) => {
+    const b = label.getBoundingClientRect();
+    if (chips.some((c) => b.left < c.right && b.right > c.left && b.top < c.bottom && b.bottom > c.top)) label.style.visibility = "hidden";
+  });
   const svg = $("svg.map", container);
   const inspector = $(".inspector", container);
   const resting = inspector.innerHTML;
@@ -710,7 +730,7 @@ function workflowStages(d) {
       inputs: "One candidate and its hash", outputs: `Single-use approval, expires after ${esc(d.limits.approval_expires_after_minutes)} min`, mustnot: "An approval never runs anything by itself", owner: "POST /api/v1/experiments/{id}/approval" },
     { key: "control", band: "executes", kind: "control", iconName: "terminal", title: "Control plane", who: "Code, not an agent",
       state: faultRunning ? "working" : run ? "done" : "waiting",
-      artifact: faultRunning ? `Fault running now · watchdog armed on ${esc(d.watchdog[0].target)}` : run ? `<code>${esc(run.run_id)}</code> · ${esc(actionLabel(runAction(run).action))} ${esc(run.action_params?.duration_seconds ?? "")} s` : "No run yet",
+      artifact: faultRunning ? `Fault running now · watchdog armed on ${esc(d.watchdog[0].target)}` : run ? `<code>${esc(run.run_id)}</code> · ${esc(actionLabel(runAction(run).action))} ${esc(plannedSeconds(run) ?? "")} s` : "No run yet",
       inputs: "Approved, immutable plan", outputs: "Run record, rollback, recovery check", mustnot: "Only predefined actions on allowlisted targets", owner: "safety/ (operator CLI only)" },
     { key: "impact", band: "advises", kind: "agent", iconName: "activity", title: "Impact", who: "Agent 2",
       state: run ? "done" : "waiting",
@@ -844,7 +864,8 @@ function headline(run, limits, baselineP95Override) {
   const faults = (run.observations || []).filter((o) => o.phase === "fault");
   const worst = (key) => faults.reduce((m, o) => (num(o[key]) !== null && (m === null || o[key] > m) ? o[key] : m), null);
   const recovery = run.recovery_verified ? `Rolled back, recovered in <b>${esc(fmt.secs(run.recovery_time_seconds))}</b>.` : "Recovery <b>not verified</b>.";
-  if (run.dry_run) return `Dry run of ${esc(actionLabel(action))} on ${esc(target)}: nothing was changed. Dry runs are never scored or ranked.`;
+  const subject = esc(runSubject(run, action, targetText(target)));
+  if (run.dry_run) return `Dry run of ${subject}: nothing was changed. Dry runs are never scored or ranked.`;
   if (run.status === "aborted") {
     const base = baselineP95Override ?? run.baseline_write_p95_ms;
     const last = faults[faults.length - 1] || {};
@@ -855,9 +876,9 @@ function headline(run, limits, baselineP95Override) {
     else if (/fresh/.test(reason) && num(last.freshness_p95_seconds) !== null) why = `freshness <b>${esc(fmt.secs(last.freshness_p95_seconds))}</b> passed the <b>${esc(fmt.secs(t.freshness_p95_seconds))}</b> limit`;
     else if (/sample|telemetry/.test(reason)) why = "too few samples in the 30 s window, which counts as unhealthy";
     const prefix = run.forced_test ? "Forced kill-switch test: " : "";
-    return `${prefix}${esc(actionLabel(action))} on ${esc(target)}. Kill switch fired at <b>${esc(fmt.rel(at(tl.abort_at)))}</b>: ${why}. ${recovery}${run.forced_test ? " Aborted by design; not scored." : ""}`;
+    return `${prefix}${subject}. Kill switch fired at <b>${esc(fmt.rel(at(tl.abort_at)))}</b>: ${why}. ${recovery}${run.forced_test ? " Aborted by design; not scored." : ""}`;
   }
-  return `${esc(actionLabel(action))} on ${esc(target)} for ${esc(run.action_params?.duration_seconds ?? "?")} s. Worst write errors <b>${esc(fmt.pct(worst("write_error_rate")))}</b>, worst search errors <b>${esc(fmt.pct(worst("search_error_rate")))}</b>, worst write p95 <b>${esc(fmt.ms(worst("write_p95_ms")))}</b>. ${recovery}`;
+  return `${subject}${isCompound(run) ? `. ${esc(plannedSeconds(run) ?? "?")} s in total` : ` for ${esc(plannedSeconds(run) ?? "?")} s`}. Worst write errors <b>${esc(fmt.pct(worst("write_error_rate")))}</b>, worst search errors <b>${esc(fmt.pct(worst("search_error_rate")))}</b>, worst write p95 <b>${esc(fmt.ms(worst("write_p95_ms")))}</b>. ${recovery}`;
 }
 
 function scoreRingFor(run, size = 120) {
@@ -876,7 +897,7 @@ function latestRunTile(run, d) {
     source: `run <code>${esc(run.run_id)}</code>`,
     right: chip(run.status === "aborted" ? "Kill switch fired" : fmt.sentence(run.status), run.status === "aborted" ? "bad" : "ok", run.status === "aborted" ? "octagon" : "check"),
     body: `<div class="score-layout"><div>${scoreRingFor(run)}</div><div><p class="run-headline">${headline(run, d.limits)}</p>
-      <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">${chip(`${actionLabel(action)} · ${target}`, "outline", ACTIONS[action]?.icon || "zap")}${run.diagnosis?.prediction_accuracy !== undefined ? chip(`Prediction accuracy ${fmt.pct(run.diagnosis.prediction_accuracy)}`, "outline") : ""}${chip(fmt.date(run.created_at), "outline", "clock")}</div></div></div>`,
+      <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">${chip(`${actionLabel(action)} · ${targetText(target)}`, "outline", ACTIONS[action]?.icon || "zap")}${run.diagnosis?.prediction_accuracy !== undefined ? chip(`Prediction accuracy ${fmt.pct(run.diagnosis.prediction_accuracy)}`, "outline") : ""}${chip(fmt.date(run.created_at), "outline", "clock")}</div></div></div>`,
     foot: `<span>Recorded run</span><a href="#/runs/${encodeURIComponent(run.run_id)}">Open and replay ${icon("arrow", "sm")}</a>`,
   });
 }
@@ -1214,6 +1235,7 @@ $("#approve-form").addEventListener("submit", async (event) => {
 const RULE_FOR_REASON = [[/p95|latency/, "p95"], [/error/, "errors"], [/fresh/, "fresh"], [/sample|telemetry/, "samples"], [/unrelated|component|service|health/, "others"], [/duration|timeout/, "duration"]];
 
 async function loadRuns(selected) {
+  remediationsCache = null;
   const [runsPayload, limits, graph, ranked] = await Promise.all([getJson("/api/v1/runs?limit=50"), policy(), getJson("/api/v1/dependency-map"), getJson("/api/v1/findings/ranked")]);
   const runs = sortRuns(runsPayload.runs);
   const view = $("#view-runs");
@@ -1226,9 +1248,10 @@ async function loadRuns(selected) {
     const { action, target } = runAction(r);
     const status = r.status === "aborted" ? chip(r.forced_test ? "Forced abort" : "Kill switch", "bad", "octagon") : chip(fmt.sentence(r.status), r.status === "completed" ? "ok" : "", r.status === "completed" ? "check" : "");
     return `<a class="run-item ${r.run_id === run.run_id ? "selected" : ""}" href="#/runs/${encodeURIComponent(r.run_id)}" ${r.run_id === run.run_id ? 'aria-current="true"' : ""}>
-      <div class="ri-top"><span class="ri-title">${esc(actionLabel(action))} · ${esc(target)}</span>${status}</div>
+      <div class="ri-top"><span class="ri-title">${esc(actionLabel(action))} · ${esc(targetText(target))}</span>${status}</div>
       <div class="ri-meta">${esc(fmt.date(r.created_at))} · <span class="mono">${esc(r.run_id)}</span></div>
-      <div class="ri-meta">${isScored(r) ? `score ${esc(r.resilience_score?.score ?? "—")}` : r.forced_test ? "forced test · not scored" : "dry run · not scored"}</div></a>`;
+      <div class="ri-meta">${isScored(r) ? `score ${esc(r.resilience_score?.score ?? "—")}` : r.forced_test ? "forced test · not scored" : "dry run · not scored"}</div>
+      ${isCompound(r) || fixesOf(r).length ? `<div class="ri-tags">${isCompound(r) ? chip(`${(r.faults || []).length} staged faults`, "info", "flask") : ""}${fixesOf(r).map((name) => chip(`fix: ${name}`, "ok", "shieldCheck")).join("")}</div>` : ""}</a>`;
   }).join("")}</nav><div id="run-detail"></div></div>`;
   const findings = ranked.ranked?.filter((f) => f.run_id === run.run_id) || [];
   const legacy = findings.length ? [] : (await getJson(`/api/v1/findings?run_id=${encodeURIComponent(run.run_id)}`)).findings || [];
@@ -1257,7 +1280,9 @@ function runModel(run, limits) {
   const rollbackT = at(tl.rollback_at);
   const recoveredT = at(tl.recovered_at);
   const endFault = abortT ?? rollbackT;
-  return { tl, inj, obs, events, tMin, tMax, base, thresholds, forcedRule, tripKey, abortT, rollbackT, recoveredT, endFault, at };
+  // Combined runs: one lane per fault, from its own injection to its own rollback.
+  const spans = (run.faults || []).filter((f) => f.injected_at).map((f) => ({ action: f.action, target: f.target, start: at(f.injected_at), end: f.rolled_back_at ? at(f.rolled_back_at) : null }));
+  return { tl, inj, obs, events, tMin, tMax, base, thresholds, forcedRule, tripKey, abortT, rollbackT, recoveredT, endFault, at, spans };
 }
 
 function rulesAt(run, m, limits, cursor) {
@@ -1326,12 +1351,12 @@ function renderRunDetail(run, limits, graph, findings, legacy) {
   const { action, target } = runAction(run);
   const host = $("#run-detail");
   const score = run.resilience_score || {};
-  const labels = `${run.forced_test ? chip("Forced kill-switch test · not scored", "warn", "alert") : ""}${run.dry_run ? chip("Dry run · not scored", "warn", "info") : ""}`;
+  const labels = `${run.forced_test ? chip("Forced kill-switch test · not scored", "warn", "alert") : ""}${run.dry_run ? chip("Dry run · not scored", "warn", "info") : ""}${isCompound(run) ? chip(`${(run.faults || []).length} staged faults · one kill switch`, "info", "flask") : ""}${fixesOf(run).map((name) => chip(`Fix live: ${name}`, "ok", "shieldCheck")).join("")}`;
   const state = { cursor: m.tMin, aborted: false, log: [] };
   Object.assign(replay, { playing: false });
   host.innerHTML = `
     <section class="tile hero ${run.status === "aborted" ? "t-red" : ""}">
-      <div class="tile-head"><div><p class="eyebrow">${esc(fmt.date(run.created_at))} · <span class="mono">${esc(run.run_id)}</span></p><h2 style="font-size:20px">${icon(ACTIONS[action]?.icon || "zap", "lg")} ${esc(actionLabel(action))} · ${esc(target)}</h2></div>
+      <div class="tile-head"><div><p class="eyebrow">${esc(fmt.date(run.created_at))} · <span class="mono">${esc(run.run_id)}</span></p><h2 style="font-size:20px">${icon(ACTIONS[action]?.icon || "zap", "lg")} ${esc(actionLabel(action))} · ${esc(targetText(target))}</h2></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${run.status === "aborted" ? chip("Kill switch fired", "bad", "octagon") : chip(fmt.sentence(run.status), "ok", "check")}${labels}${chip("Recorded", "outline")}</div></div>
       <p class="run-headline">${headline(run, limits)}</p>
       <div class="scrubber" style="margin-top:14px">${scrubTrack(m)}</div>
@@ -1356,8 +1381,10 @@ function renderRunDetail(run, limits, graph, findings, legacy) {
       ${tile({ cls: "c7 t-teal", title: "Resilience score", iconName: "gauge", why: "0.30 availability + 0.20 latency + 0.20 recovery + 0.15 containment + 0.15 detection.", source: isScored(run) ? `coverage ${esc(score.coverage ?? "—")}` : "not scored", body: scoreBlock(run) })}
       ${tile({ cls: "c5", title: "Predicted vs observed", iconName: "route", why: "Agent 3's per-SLI prediction before the run, against what Agent 2 measured.", right: run.diagnosis?.prediction_accuracy !== undefined ? chip(`Accuracy ${fmt.pct(run.diagnosis.prediction_accuracy)}`, "info") : "", body: predictionBlock(run) })}
     </div>
+    <div id="stretch-tiles"></div>
     ${tile({ title: "Findings", iconName: "fileCheck", why: "Measured facts, each with its source, kept apart from the hypothesis and fix. Violet marks text the optional LLM wrote.", source: `${findings.length || legacy.length} for this run`, body: findingsBlock(findings, legacy) })}`;
   animateRings(host);
+  renderStretchTiles(run);
 
   const feed = $("#replay-feed");
   const log = (t, text, cls = "") => { state.log.push({ t, text, cls }); feed.innerHTML = state.log.map((e) => `<div class="${e.cls}"><span>${esc(fmt.rel(e.t))}</span>${esc(e.text)}</div>`).join(""); feed.scrollTop = feed.scrollHeight; };
@@ -1377,7 +1404,11 @@ function renderRunDetail(run, limits, graph, findings, legacy) {
     renderRunCharts(run, m, limits, cursor);
     const faultOn = cursor >= 0 && cursor < (m.rollbackT ?? m.tMax) && !state.aborted;
     const faultLabel = run.status === "aborted" && num(m.abortT) !== null && cursor >= m.abortT ? `${actionLabel(action)} · kill switch fired at ${fmt.rel(m.abortT)}` : `${actionLabel(action)} · fault active`;
-    const fault = faultOn ? { target, label: faultLabel, impacted: impactOf(graph, target) } : null;
+    let fault = faultOn ? { target, label: faultLabel, impacted: impactOf(graph, target) } : null;
+    if (faultOn && m.spans.length > 1) {
+      const active = m.spans.filter((f) => cursor >= f.start && (f.end === null || cursor < f.end));
+      fault = active.length ? { label: active.map((f) => f.target).join("+") + (run.status === "aborted" && num(m.abortT) !== null && cursor >= m.abortT ? " kill" : ""), targets: active.map((f) => ({ id: f.target, label: `${actionLabel(f.action)} · fault active` })), impacted: [...new Set(active.flatMap((f) => impactOf(graph, f.target)))].filter((id) => !active.some((f) => f.target === id)) } : null;
+    }
     const mapKey = fault ? fault.label : "none";
     if (state.mapKey !== mapKey) { state.mapKey = mapKey; renderMap($("#run-map"), graph, limits, { band: false, policyOverlay: false, fault }); }
     const hold = $("#hold-kill");
@@ -1386,6 +1417,10 @@ function renderRunDetail(run, limits, graph, findings, legacy) {
     $("#hold-hint").textContent = canKill ? "Ends the replayed fault and rolls back now (simulation)." : "Active only while the replayed fault runs.";
     if (playing) {
       for (const e of m.events) if (cursor >= e.t && !passed.has(e.key)) { passed.add(e.key); log(e.t, eventText(e, run, m, limits, action, target), e.kind === "kill" ? "kill" : e.kind === "recovered" ? "ok" : ""); }
+      if (m.spans.length > 1) m.spans.forEach((f, i) => {
+        if (cursor >= f.start && !passed.has(`fs${i}`)) { passed.add(`fs${i}`); log(f.start, `Fault ${i + 1} of ${m.spans.length} injected: ${actionLabel(f.action)} on ${f.target}.`); }
+        if (f.end !== null && cursor >= f.end && !passed.has(`fe${i}`)) { passed.add(`fe${i}`); log(f.end, `Fault ${i + 1} rolled back at its own end: ${ACTIONS[f.action]?.rollback || "predefined rollback"}.`); }
+      });
       for (const o of m.obs) if (cursor >= o.t && !passed.has(`o${o.i}`)) { passed.add(`o${o.i}`); if (o.phase === "fault") log(o.t, `Poll: write p95 ${fmt.ms(o.write_p95_ms)} · write errors ${fmt.pct(o.write_error_rate)} · search errors ${fmt.pct(o.search_error_rate)} · freshness ${fmt.secs(o.freshness_p95_seconds)}`); }
     }
   };
@@ -1419,9 +1454,64 @@ function renderRunDetail(run, limits, graph, findings, legacy) {
   update(false);
 }
 
+// ------------------------------------------------------------------ stretch goals on the run page
+const INTERACTION = { amplified: ["Amplified: worse together", "bad"], dampened: ["Dampened: one fault masked the other", "info"], no_interaction: ["No interaction", "ok"], inconclusive: ["Inconclusive", "warn"] };
+const FIX_VERDICT = { verified: ["Verified", "ok"], not_verified: ["Not verified", "bad"], inconclusive: ["Inconclusive", "warn"], unavailable: ["Unavailable", "warn"] };
+let remediationsCache = null;
+const remediations = () => (remediationsCache ||= getJson("/api/v1/remediations").catch(() => ({ remediations: [] })));
+
+async function renderStretchTiles(run) {
+  const host = $("#stretch-tiles");
+  const parts = [];
+  if (isCompound(run)) {
+    const data = await getJson(`/api/v1/runs/${encodeURIComponent(run.run_id)}/interaction`).catch(() => null);
+    if (data) parts.push(interactionTile(data));
+  }
+  const rem = await remediations();
+  const pairs = (rem.remediations || []).filter((r) => r.pair && [r.pair.before_run_id, r.pair.after_run_id].includes(run.run_id));
+  pairs.forEach((r) => parts.push(fixTile(r, run)));
+  if (host && host.isConnected && parts.length) { host.innerHTML = parts.join(""); host.classList.add("stretch-on"); }
+}
+
+function interactionTile(d) {
+  const [text, kind] = INTERACTION[d.verdict] || [fmt.sentence(d.verdict || "unknown"), ""];
+  const rows = Object.entries(d.per_sli || {}).flatMap(([sli, metrics]) => Object.entries(metrics).map(([metric, v]) => {
+    const f = metric === "p95_ms" ? fmt.ms : metric === "p95_s" ? fmt.secs : fmt.pct;
+    const [vt, vk] = INTERACTION[v.verdict] || [fmt.sentence(v.verdict), ""];
+    return `<tr><td><strong>${esc(fmt.sentence(sli))}</strong> <span class="muted">${esc(metric === "error_rate" ? "error rate" : "p95")}</span></td><td class="num">${esc(f(v.compound))}</td><td class="num">${esc(f(v.worst_solo))}</td><td>${chip(vt, vk)}</td></tr>`;
+  })).join("");
+  const faults = (d.faults || []).map((f) => `${actionLabel(f.action)} on ${f.target} at +${f.start_offset_seconds ?? 0} s for ${f.duration_seconds ?? "?"} s`).join(", then ");
+  return tile({
+    cls: "t-purple", title: "Interaction: worse together than alone?", iconName: "flask",
+    why: "The combined run against the worst solo run of each fault (same fixes live, recorded earlier). Amplified needs more than 25 % and an absolute margin worse than every solo run.",
+    right: chip(text, kind), source: `${(d.solo_run_ids || []).length} solo runs compared`,
+    body: `<p class="plain-text">${esc(faults)}.</p><p class="muted" style="margin-top:6px">${esc(d.reason || "")}</p>
+      ${rows ? `<div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Signal</th><th>Combined</th><th>Worst solo</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
+      ${(d.solo_run_ids || []).length ? `<p class="muted" style="margin-top:10px">Solo runs: ${d.solo_run_ids.map((id) => `<a class="mono" href="#/runs/${encodeURIComponent(id)}">${esc(id)}</a>`).join(" · ")}</p>` : ""}`,
+  });
+}
+
+function fixTile(r, run) {
+  const p = r.pair;
+  const [text, kind] = FIX_VERDICT[p.verdict] || [fmt.sentence(p.verdict), ""];
+  const role = p.after_run_id === run.run_id ? "after" : "before";
+  const other = role === "after" ? p.before_run_id : p.after_run_id;
+  const side = (x) => (x ? `${esc(x.search_failures ?? 0)} failed · ${esc((x.search_failure_errors || []).join(", ") || "none")} · longest ${esc(num(x.search_failure_wait_seconds) === null ? "—" : fmt.secs(x.search_failure_wait_seconds))}` : "—");
+  const mark = (s) => (s === "pass" ? `<span class="ok">${icon("check", "sm")}</span>` : s === "fail" ? `<span class="bad">${icon("x", "sm")}</span>` : `<span class="muted">${icon("info", "sm")}</span>`);
+  return tile({
+    cls: "t-green", title: `Re-run after a fix: ${r.name}`, iconName: "shieldCheck",
+    why: `This run is the ${role === "after" ? "re-run with the fix live" : "run before the fix"}. ${r.change || ""}`,
+    right: chip(text, kind, p.verdict === "verified" ? "check" : "alert"),
+    source: `${role === "after" ? "before" : "after"}: <a class="mono" href="#/runs/${encodeURIComponent(other)}">${esc(other)}</a>`,
+    body: `<div class="kv fix-sides"><div><span>Before the fix</span><strong>${side(p.before)}</strong></div><div><span>After the fix</span><strong>${side(p.after)}</strong></div></div>
+      <div class="fix-checks">${(p.checks || []).map((c) => `<div class="fix-check" title="${esc(c.detail || "")}">${mark(c.status)}<span>${esc(fmt.sentence(c.check))}</span></div>`).join("")}</div>
+      <p class="muted" style="margin-top:8px">Weakness: ${esc(r.addresses || "")}</p>`,
+  });
+}
+
 function eventText(e, run, m, limits, action, target) {
-  if (e.kind === "preflight") return `Preflight: steady state checked against baseline, watchdog armed on ${target}.`;
-  if (e.kind === "fault") return `Fault injected: ${actionLabel(action)} on ${target}.`;
+  if (e.kind === "preflight") return `Preflight: steady state checked against baseline, watchdog armed on ${targetText(target)}.`;
+  if (e.kind === "fault") return isCompound(run) ? `First fault injected (${(run.faults || []).length} staged faults under one kill switch).` : `Fault injected: ${actionLabel(action)} on ${target}.`;
   if (e.kind === "action") return "Fault action returned; kill switch keeps polling.";
   if (e.kind === "kill") return `Kill switch fired: ${fmt.label(run.abort_reason || "rule tripped")}.`;
   if (e.kind === "rollback") return `Rollback: ${ACTIONS[action]?.rollback || "predefined rollback"}.`;
@@ -1444,7 +1534,10 @@ function scrubTrack(m) {
     ${num(m.rollbackT) !== null && num(m.recoveredT) !== null ? `<div class="scrub-phase recover" style="left:${pct(m.rollbackT)};width:calc(${pct(m.recoveredT)} - ${pct(m.rollbackT)})"></div>` : ""}
     ${merged.map((e, i) => { const at = (e.t - m.tMin) / span; return `<span class="scrub-dot ${e.kinds.includes("kill") ? "kill" : e.kinds[e.kinds.length - 1]}" style="left:${pct(e.t)}"></span><div class="scrub-event ${i % 2 ? "down" : "up"} ${at < 0.15 ? "edge-l" : at > 0.85 ? "edge-r" : ""}" style="left:${pct(e.t)}"><b>${esc(e.label)}</b><small>${esc(fmt.rel(e.t))}</small></div>`; }).join("")}
     <input class="scrub-input" id="scrub-input" type="range" min="${m.tMin}" max="${m.tMax}" step="0.1" value="${m.tMin}" aria-label="Scrub through the run timeline">
-  </div>`;
+  </div>${m.spans.length > 1 ? `<div class="fault-lanes" role="list" aria-label="Faults of this combined run">${m.spans.map((f) => {
+    const end = f.end ?? m.endFault ?? f.start;
+    return `<div class="fault-lane" role="listitem"><div class="fl-bar ${esc(f.action)}" style="left:${pct(f.start)};width:calc(${pct(end)} - ${pct(f.start)})" title="${esc(actionLabel(f.action))} on ${esc(f.target)}: ${esc(fmt.rel(f.start))} to ${esc(fmt.rel(end))}"><span>${esc(actionLabel(f.action))} · ${esc(f.target)} · ${esc(fmt.rel(f.start))} → ${esc(fmt.rel(end))}</span></div></div>`;
+  }).join("")}</div>` : ""}`;
 }
 
 function renderRunCharts(run, m, limits, cursor) {
@@ -1568,7 +1661,8 @@ const AUDIT_LABELS = {
 };
 
 async function loadSafety() {
-  const [limits, watchdog, audit, slis, baselines] = await Promise.all([policy(), getJson("/api/v1/watchdog?limit=20"), getJson("/api/v1/audit?limit=60"), getJson("/api/v1/slis?window=30"), getJson("/api/v1/baselines?limit=1")]);
+  remediationsCache = null;
+  const [limits, watchdog, audit, slis, baselines, fixes] = await Promise.all([policy(), getJson("/api/v1/watchdog?limit=20"), getJson("/api/v1/audit?limit=60"), getJson("/api/v1/slis?window=30"), getJson("/api/v1/baselines?limit=1"), remediations()]);
   setLiveChip(slis);
   const t = limits.abort_thresholds;
   const baseline = baselines.baselines[0];
@@ -1625,10 +1719,29 @@ async function loadSafety() {
         <tr><td><strong>Search errors</strong></td><td class="muted">Not an abort signal: it is the expected impact of a search fault</td></tr>
       </tbody></table></div>` })}
     </div>
+    ${fixesTile(fixes)}
     ${tile({ title: "Audit trail", iconName: "file", why: "Every step the control plane took, grouped by run.", source: `${(audit.events || []).length} events`, body: runs.length ? runs.map(([runId, list]) => `<div class="audit-run"><div class="audit-run-head"><a class="mono" href="#/runs/${encodeURIComponent(runId)}">${esc(runId)}</a><span class="muted">${esc(fmt.date(list[0].recorded_at))}</span></div>
         <div class="audit-steps">${list.map((e, i) => { const [label, kind] = AUDIT_LABELS[e.event] || [fmt.sentence(e.event), ""]; return `${i ? `<span class="arrow">${icon("arrow", "sm")}</span>` : ""}<span title="${esc(fmt.clock(e.recorded_at))}${e.payload?.reason ? ` · ${esc(fmt.label(e.payload.reason))}` : ""}">${chip(`${label}${e.payload?.verified === false ? " · not verified" : ""}`, kind)}</span>`; }).join("")}</div></div>`).join("")
         : emptyState("No audit events yet", "<p>Every preflight, fault start, abort, cleanup and recovery check is written here by the control plane when the operator CLI runs an experiment.</p>") })}`;
   stamp();
+}
+
+function fixesTile(data) {
+  const list = data?.remediations || [];
+  if (!list.length) return "";
+  const live = (r) => (r.live_in_last_recorded_run === true ? chip("live in last run", "ok", "check") : r.live_in_last_recorded_run === false ? chip("off in last run", "outline") : chip("not recorded", "outline"));
+  return tile({
+    title: "Fixes · re-run after a fix", iconName: "shieldCheck",
+    why: "Registered fixes (configs/remediations.yaml) and the latest before/after verdict. Applied and reverted only from the operator terminal (deploy/remediate.py); this page never touches a container.",
+    source: list.find((r) => r.last_recorded_run) ? `state from run <code>${esc(list.find((r) => r.last_recorded_run).last_recorded_run)}</code>` : "no run recorded a fix state yet",
+    body: `<div class="table-wrap"><table class="table"><thead><tr><th>Fix</th><th>Side</th><th>State</th><th>Latest verdict</th><th>Before → after</th></tr></thead><tbody>${list.map((r) => {
+      const p = r.pair;
+      const [text, kind] = p ? (FIX_VERDICT[p.verdict] || [fmt.sentence(p.verdict), ""]) : ["No pair yet", "outline"];
+      const wait = (x) => (num(x?.search_failure_wait_seconds) === null ? "—" : fmt.secs(x.search_failure_wait_seconds));
+      return `<tr><td><strong>${esc(r.name)}</strong><br><small class="muted">${esc(r.change || "")}</small></td><td>${esc(r.kind === "server" ? "server" : "client")}</td><td>${r.kind === "server" ? live(r) : chip("in the workload", "outline")}</td><td>${chip(text, kind)}</td>
+        <td>${p?.before_run_id ? `<a class="mono" href="#/runs/${encodeURIComponent(p.before_run_id)}">${esc(wait(p.before))}</a> → <a class="mono" href="#/runs/${encodeURIComponent(p.after_run_id)}">${esc(wait(p.after))}</a>` : "—"}</td></tr>`;
+    }).join("")}</tbody></table></div>`,
+  });
 }
 
 function groupAudit(events) {

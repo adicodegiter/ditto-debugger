@@ -279,6 +279,8 @@ labelled and never scored.
 | Live dashboard | Done: dashboard and API read the run store | [Dashboard](#dashboard), [docs/dashboard-check.md](docs/dashboard-check.md) |
 | Combined failures | **Run live.** Traffic burst on nginx, then `things-search` paused 10 s later, in one approved plan; both faults rolled back and recovered; verdict `no_interaction` at about 24 req/s | [docs/combined-failures.md](docs/combined-failures.md) |
 
+**In the dashboard** (read-only; nothing executes): **Runs** shows a combined run's two fault lanes, both attacked components on the map, and its interaction verdict, recomputed from the stored solo runs; runs that had a fix live carry a *Fix live* chip, and both runs of a before/after pair show the verdict. **Safety** lists the registered fixes. The lab view is at `/lab`.
+
 **Re-run after a fix.** `docs/findings-report.md` names a weakness: search does not fail fast while `things-search` is
 down. The fix makes nginx answer a stuck search with HTTP 504 and `Retry-After` after 1.5 s. Every run records which
 fixes were live (read from the running nginx), and `python -m ai.remediation verify` judges a before/after pair of the

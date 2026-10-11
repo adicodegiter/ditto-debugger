@@ -163,3 +163,107 @@ def baseline_view(baseline: dict[str, Any]) -> dict[str, Any]:
 
 def percentile_of(values: list[float], fraction: float) -> float | None:
     return percentile(values, fraction)
+
+
+# ---------------------------------------------------------------- stretch goals (read-only)
+# Combined failures and re-run-after-fix are judged from stored run records and their raw probe
+# samples. Nothing below runs Docker or touches a container: the "is a fix live" answer is the
+# deployment stamp the operator CLI recorded on the last run, never a live `nginx -T` from the API.
+
+def _is_real(run: dict[str, Any]) -> bool:
+    return not run.get("dry_run") and not run.get("forced_test")
+
+
+def run_interaction(run: dict[str, Any], runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Recompute a combined run's interaction verdict from the solo runs stored now (never stale)."""
+    from ai.compound import interaction_effect
+
+    if run.get("kind") != "compound":
+        return {"status": "not_compound", "run_id": run.get("run_id")}
+    def fixes(item: dict[str, Any]) -> frozenset[str]:
+        return frozenset((item.get("deployment") or {}).get("remediations_active") or [])
+
+    # A solo run only counts if the same fixes were live (a fix changes how the fault behaves) and it
+    # ran before the combined run.
+    solos = [item for item in runs if item.get("kind") != "compound" and item.get("run_id") != run.get("run_id")
+             and fixes(item) == fixes(run) and str(item.get("created_at", "")) <= str(run.get("created_at", ""))]
+    effect = interaction_effect(run, solos)
+    faults = [{"action": f.get("action"), "target": f.get("target"), "start_offset_seconds": f.get("start_offset_seconds"),
+               "duration_seconds": f.get("duration_seconds"), "state": f.get("state")} for f in run.get("faults") or []]
+    return {"status": "available", **effect, "faults": faults, "stored_verdict": (run.get("interaction") or {}).get("verdict")}
+
+
+def _evidence_run(repo_root: Path, run_id: str) -> dict[str, Any] | None:
+    for path in sorted((repo_root / "docs" / "evidence").glob(f"**/{run_id}.json")):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+    return None
+
+
+def _run_samples(repo_root: Path, metrics_dir: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
+    """Committed samples next to the evidence first, then the live metrics files."""
+    from ai.request_evidence import extract_samples, load_samples
+
+    for path in sorted((repo_root / "docs" / "evidence").glob(f"**/samples/{run.get('run_id')}.jsonl")):
+        return load_samples(path)
+    return extract_samples(run, metrics_dir)
+
+
+def remediation_views(repo_root: Path, metrics_dir: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Each registered fix, the latest before/after pair for it, and its verdict (ai.remediation.verify)."""
+    from ai.ranking import _target_and_action
+    from ai.remediation import load_registry, verify
+
+    try:
+        registry = load_registry(repo_root / "configs" / "remediations.yaml")
+    except (OSError, ValueError) as error:
+        return {"remediations": [], "warnings": [f"registry unreadable: {type(error).__name__}"]}
+    ordered = sorted((r for r in runs if _is_real(r)), key=lambda r: str(r.get("created_at", "")))
+    stamped = [r for r in ordered if isinstance((r.get("deployment") or {}).get("remediations_active"), list)]
+    latest_stamp = stamped[-1] if stamped else None
+    out = []
+    for name, entry in registry.items():
+        want = entry.get("validate_with") or {}
+        pair: tuple[dict[str, Any], dict[str, Any]] | None = None
+        if entry.get("kind") == "server":
+            same = [r for r in stamped if _target_and_action(r) == (want.get("target"), want.get("action"))]
+            afters = [r for r in same if name in r["deployment"]["remediations_active"]]
+            if afters:
+                after = afters[-1]
+                befores = [r for r in same if name not in r["deployment"]["remediations_active"]
+                           and str(r.get("created_at", "")) < str(after.get("created_at", ""))]
+                if befores:
+                    pair = (befores[-1], after)
+        else:
+            refs = entry.get("evidence") or {}
+            by_id = {r.get("run_id"): r for r in runs}
+            before = by_id.get(refs.get("before")) or _evidence_run(repo_root, str(refs.get("before")))
+            after = by_id.get(refs.get("after")) or _evidence_run(repo_root, str(refs.get("after")))
+            if before and after:
+                pair = (before, after)
+        item: dict[str, Any] = {
+            "name": name, "kind": entry.get("kind"), "addresses": entry.get("addresses"), "change": entry.get("change"),
+            "validate_with": want,
+            "live_in_last_recorded_run": (name in latest_stamp["deployment"]["remediations_active"]) if latest_stamp else None,
+            "last_recorded_run": (latest_stamp or {}).get("run_id"),
+            "last_recorded_at": ((latest_stamp or {}).get("deployment") or {}).get("checked_at"),
+            "pair": None,
+        }
+        if pair:
+            try:
+                result = verify(name, pair[0], pair[1], _run_samples(repo_root, metrics_dir, pair[0]),
+                                _run_samples(repo_root, metrics_dir, pair[1]), registry)
+                facts = result["request_facts"]
+                item["pair"] = {
+                    "before_run_id": result["before_run_id"], "after_run_id": result["after_run_id"],
+                    "verdict": result["verdict"],
+                    "checks": [{k: c.get(k) for k in ("check", "status", "detail")} for g in ("conditions", "success_criteria", "guards") for c in result[g]],
+                    "before": {k: facts["before"].get(k) for k in ("search_failures", "search_failure_errors", "search_failure_wait_seconds")},
+                    "after": {k: facts["after"].get(k) for k in ("search_failures", "search_failure_errors", "search_failure_wait_seconds")},
+                }
+            except Exception as error:  # noqa: BLE001 - a broken pair is shown as unavailable, never as a pass
+                item["pair"] = {"verdict": "unavailable", "reason": type(error).__name__}
+        out.append(item)
+    return {"remediations": out, "api_reads_docker": False}

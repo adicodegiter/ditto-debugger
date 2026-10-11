@@ -54,6 +54,9 @@ h2{margin:2px 0 10px;font-size:17px;font-weight:650;display:flex;gap:10px;align-
 .scn{all:unset;box-sizing:border-box;cursor:pointer;padding:10px 12px;border-radius:11px;background:var(--panel2);border:1px solid var(--line);display:block}
 .scn:hover{border-color:#3a566f}
 .scn.on{border-color:var(--warn);background:#2a2412}
+.scn:disabled{opacity:.45;cursor:not-allowed}.scn:disabled:hover{border-color:var(--line)}
+.scn:focus-visible,.tabs button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.row-btn:disabled{opacity:.4;cursor:not-allowed}
 .scn strong{display:block;font-size:13px}.scn small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
 .scn .src{margin-top:6px;font-size:10px;letter-spacing:.06em}
 .src.real{color:var(--ok)}.src.model{color:var(--viol)}
