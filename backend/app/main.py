@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import workbench_views as views
+from .graph import AgentGraph
 from .orchestrator import AgentOrchestrator
 from .settings import REPOSITORY_ROOT, Settings
 from safety.runner import RunnerError
@@ -161,6 +162,13 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     @application.get("/api/v1/dependency-map")
     def dependency_map() -> dict[str, Any]:
         return views.dependency_map(REPOSITORY_ROOT / "ai" / "dependency_map.json")
+
+    @application.get("/api/v1/agent-graph")
+    def agent_graph() -> dict[str, Any]:
+        # Read-only: graph structure and the last planning state. Never runs a node.
+        if getattr(application.state, "agent_graph", None) is None:
+            application.state.agent_graph = AgentGraph(application.state.orchestrator)
+        return application.state.agent_graph.describe()
 
     @application.get("/api/v1/watchdog")
     def watchdog(limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:

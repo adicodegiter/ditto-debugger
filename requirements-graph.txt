@@ -1,0 +1,4 @@
+# Optional: LangGraph orchestration of the advisory agents (backend/app/graph.py).
+# Without it the same nodes run sequentially (engine = sequential-fallback).
+-r requirements.txt
+langgraph==1.2.12
