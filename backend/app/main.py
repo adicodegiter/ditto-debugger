@@ -20,6 +20,11 @@ class PlanRequest(BaseModel):
     max_candidates: int = Field(default=3, ge=1, le=10)
 
 
+class AgentGraphRunRequest(BaseModel):
+    max_candidates: int = Field(default=3, ge=1, le=10)
+    baseline_id: str | None = Field(default=None, max_length=100)
+
+
 class ApprovalRequest(BaseModel):
     decision: Literal["approve", "reject"]
     reason: str = Field(min_length=1, max_length=500)
@@ -163,12 +168,28 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     def dependency_map() -> dict[str, Any]:
         return views.dependency_map(REPOSITORY_ROOT / "ai" / "dependency_map.json")
 
+    def graph_engine() -> AgentGraph:
+        if getattr(application.state, "agent_graph", None) is None:
+            application.state.agent_graph = AgentGraph(application.state.orchestrator)
+        return application.state.agent_graph
+
     @application.get("/api/v1/agent-graph")
     def agent_graph() -> dict[str, Any]:
         # Read-only: graph structure and the last planning state. Never runs a node.
-        if getattr(application.state, "agent_graph", None) is None:
-            application.state.agent_graph = AgentGraph(application.state.orchestrator)
-        return application.state.agent_graph.describe()
+        return graph_engine().describe()
+
+    # Advisory only (same effect as POST /baselines + /experiments/plan): the graph pauses
+    # before approval and never executes. Execution stays in the operator CLI.
+    @application.post("/api/v1/agent-graph/run", status_code=201)
+    def run_agent_graph(request: AgentGraphRunRequest) -> dict[str, Any]:
+        return graph_engine().run_planning(request.max_candidates, request.baseline_id)
+
+    @application.post("/api/v1/agent-graph/resume")
+    def resume_agent_graph() -> dict[str, Any]:
+        try:
+            return graph_engine().resume_after_approval()
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @application.get("/api/v1/watchdog")
     def watchdog(limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:

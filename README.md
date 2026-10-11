@@ -165,6 +165,8 @@ python -m pip install -r requirements-graph.txt
 python -m backend.app.graph --max-candidates 3   # or --describe; GET /api/v1/agent-graph shows the structure
 ```
 
+In the dashboard, **Experiments → Agent graph** shows the engine, each node's state and the gate reason. **Run agent graph** runs it to the approval pause, and **Resume at approval** reports each candidate's approval status. Neither button executes anything.
+
 See [deployment instructions](docs/deployment.md) for version and telemetry caveats.
 
 ## Dashboard

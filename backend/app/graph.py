@@ -127,13 +127,16 @@ def make_planning_nodes(orchestrator: Any) -> dict[str, Callable[[PlanningState]
         return update
 
     def measure(state: PlanningState) -> dict[str, Any]:
-        """Agent 2: reuse a supplied fresh baseline, otherwise capture one from data/metrics."""
+        """Agent 2: reuse the supplied (or latest stored) baseline if it passes the gates, else capture one."""
         attempts = state.get("measure_attempts", 0) + 1
         baseline = None
         reason = ""
-        if state.get("baseline_id") and attempts == 1:
-            baseline = orchestrator.repository.get_baseline(state["baseline_id"])
-            reason = "" if baseline else "supplied baseline was not found"
+        if attempts == 1:
+            if state.get("baseline_id"):
+                baseline = orchestrator.repository.get_baseline(state["baseline_id"])
+                reason = "" if baseline else "supplied baseline was not found"
+            else:
+                baseline = next(iter(orchestrator.repository.list_baselines(1)), None)
         if baseline is None or not baseline_gate(orchestrator, baseline, state.get("graph_version"))[0]:
             try:
                 baseline = orchestrator.capture_baseline()
@@ -152,10 +155,12 @@ def make_planning_nodes(orchestrator: Any) -> dict[str, Callable[[PlanningState]
             stored = orchestrator.plan_experiments(state["baseline_id"], state.get("max_candidates", 3))
         except (LookupError, ValueError) as error:
             return {"gate": "plan_refused", "reason": str(error), "candidates": [], "trace": _trace(state, "plan")}
+        # The plan result omits store-side fields (approval_status, candidate_hash); read them back.
+        stored_items = [{**item, **(orchestrator.get_experiment(item["id"]) or {})} for item in stored.get("candidates", [])]
         candidates = [
             {key: item.get(key) for key in ("id", "target_component", "action", "duration_seconds", "predicted_slis",
                                     "risk_score", "selection_score", "reason", "candidate_hash", "approval_status")}
-            for item in stored.get("candidates", [])
+            for item in stored_items
         ]
         return {"plan_id": stored.get("plan_id"), "candidates": candidates, "gate": "awaiting_approval",
                 "reason": "a human must approve one candidate", "trace": _trace(state, "plan")}

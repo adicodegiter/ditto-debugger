@@ -34,7 +34,8 @@ class FakeOrchestrator:
         self.calls: list[str] = []
         self.approval_status = "pending"
         stored = stored or {}
-        self.repository = mock.Mock(get_baseline=lambda baseline_id: stored.get(baseline_id))
+        self.repository = mock.Mock(get_baseline=lambda baseline_id: stored.get(baseline_id),
+                                    list_baselines=lambda limit: list(stored.values())[:limit])
         self.planning_agent = mock.Mock(_baseline_is_fresh=lambda baseline: baseline.get("fresh", False))
 
     def discover_architecture(self):
@@ -120,6 +121,22 @@ class GateRoutingTests(unittest.TestCase):
                 state = AgentGraph(orchestrator, force_fallback=fallback).run_planning(baseline_id="b-1")
                 self.assertNotIn("capture", orchestrator.calls)
                 self.assertEqual(state["baseline_id"], "b-1")
+
+    def test_latest_stored_baseline_is_reused_when_fresh(self):
+        for fallback in engines():
+            with self.subTest(fallback=fallback):
+                orchestrator = FakeOrchestrator(stored={"b-latest": _baseline("b-latest")})
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
+                self.assertNotIn("capture", orchestrator.calls)
+                self.assertEqual(state["baseline_id"], "b-latest")
+
+    def test_stale_stored_baseline_triggers_capture(self):
+        for fallback in engines():
+            with self.subTest(fallback=fallback):
+                orchestrator = FakeOrchestrator(stored={"b-old": _baseline("b-old", fresh=False)}, captures=[_baseline("b-new")])
+                state = AgentGraph(orchestrator, force_fallback=fallback).run_planning()
+                self.assertIn("capture", orchestrator.calls)
+                self.assertEqual(state["baseline_id"], "b-new")
 
     def test_mismatched_graph_version_is_rejected(self):
         for fallback in engines():
@@ -243,6 +260,19 @@ class AgentGraphApiTests(unittest.TestCase):
         self.assertFalse(body["planning"]["executes"])
         self.assertIsNone(body["last_planning_state"])
         self.assertIn(body["engine"], {"langgraph", "sequential-fallback"})
+
+    def test_run_and_resume_endpoints_are_advisory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = Settings(root / "missing.yml", (), "http://127.0.0.1:9090", root / "db.sqlite3",
+                                ROOT / "configs" / "experiment-policy.yaml")
+            client = TestClient(create_app(settings))
+            self.assertEqual(client.post("/api/v1/agent-graph/resume").status_code, 409)  # nothing paused
+            run = client.post("/api/v1/agent-graph/run", json={"max_candidates": 2})
+            self.assertEqual(run.status_code, 201)
+            self.assertEqual(run.json()["gate"], "no_graph")
+            self.assertEqual(client.get("/api/v1/agent-graph").json()["last_planning_state"]["trace"], ["discover"])
+            self.assertEqual(client.post("/api/v1/agent-graph/run", json={"max_candidates": 99}).status_code, 422)
 
 
 if __name__ == "__main__":
