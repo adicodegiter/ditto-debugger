@@ -134,6 +134,21 @@ def cmd_approve(args: argparse.Namespace) -> int:
     return 0
 
 
+def deployment_state() -> dict[str, Any]:
+    """Which registered fixes (configs/remediations.yaml) are live in the running containers.
+
+    Read-only (`nginx -T`). Recorded on every run so a before/after pair can prove the fix was
+    off before and on after; an unreadable state is recorded as unknown, never as "no fix".
+    """
+    from datetime import datetime, timezone
+    checked_at = datetime.now(timezone.utc).isoformat()
+    try:
+        from deploy.remediate import active_remediations
+        return {"remediations_active": active_remediations(), "checked_at": checked_at}
+    except Exception as error:  # noqa: BLE001 - unknown, not "none"
+        return {"remediations_active": None, "checked_at": checked_at, "error": type(error).__name__}
+
+
 def cmd_execute(args: argparse.Namespace) -> int:
     settings = Settings.from_environment()
     if not args.dry_run and not settings.execution_enabled:
@@ -143,7 +158,9 @@ def cmd_execute(args: argparse.Namespace) -> int:
     try:
         candidate, approval, baseline = orchestrator.prepare_execution(args.experiment_id)
         runner, docker = build_runner(settings, orchestrator, args.dry_run)
+        deployment = deployment_state()
         run = runner.execute(candidate, approval, baseline, forced_test=args.forced_test, dry_run=args.dry_run)
+        run["deployment"] = deployment
     except (LookupError, RunnerError, SafetyViolation) as error:
         print(f"Refused: {error}", file=sys.stderr)
         return 2

@@ -1,0 +1,9 @@
+# Remediation overlay: search-fail-fast. Used ONLY together with deploy/ditto/docker-compose.yml:
+#   python deploy/remediate.py apply search-fail-fast
+# Replaces nginx's config with deploy/remediations/search-fail-fast/nginx.conf, which is the base
+# config plus one marked block (tests/test_remediation.py checks that nothing else differs).
+# Paths are relative to deploy/ditto/ (the first compose file's directory).
+services:
+  nginx:
+    volumes:
+      - ../remediations/search-fail-fast/nginx.conf:/etc/nginx/nginx.conf:ro

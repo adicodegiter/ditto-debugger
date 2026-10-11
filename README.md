@@ -244,6 +244,16 @@ pause, a traffic burst through nginx, and the 5.7 remediation re-run. Forced kil
 labelled and never scored. Deliverables: [architecture](docs/architecture.md), findings report
 (`docs/findings-report.md`, in progress), demo video (link to follow).
 
+## Stretch goal: re-run after a fix
+
+`docs/findings-report.md` names a weakness: search does not fail fast while `things-search` is down. The fix
+`search-fail-fast` makes nginx answer a stuck search with HTTP 504 and `Retry-After` after 1.5 s. It is applied
+and reverted with `python deploy/remediate.py apply|revert search-fail-fast` (only nginx is recreated). Every run
+records which fixes were live. `python -m ai.remediation verify` then judges a before/after pair of the same
+experiment on conditions, success criteria and no-regression guards, and reports `verified`, `not_verified` or
+`inconclusive`. Live result (2026-10-11): **verified**. During a 30 s pause, failing searches became HTTP 504 after 1.5 s instead of client timeouts after 3.0 s, with no write regression. Full procedure and numbers: [docs/rerun-after-fix.md](docs/rerun-after-fix.md). The earlier client-side fix
+verifies on the committed evidence: `python -m ai.remediation verify search-client-timeout --evidence`.
+
 ## Optional: Groq for finding text (Agent 3)
 
 The findings are deterministic and work with no key. To have Groq rewrite each finding's summary and recommendation:
