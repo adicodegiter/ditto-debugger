@@ -77,7 +77,7 @@ only action that may target `mongodb`), `traffic_burst` (bounded extra workload 
 nginx on separate twins, auto-stops at its cap). Defaults stay below the 60 s cap (45 s; the
 last kill-switch poll lands ~1 s after the planned end). MongoDB stays out of routine fault injection. Later, if time
 allows: network delay inside a target container's namespace, capped disk fill in our MongoDB
-volume (rollback deletes it). Combined failures are a Day-2 stretch goal.
+volume (rollback deletes it). Combined failures (two staged faults, one kill switch; `docs/combined-failures.md`) are built and tested; live run pending.
 
 ## Repo layout
 ```

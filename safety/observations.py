@@ -103,9 +103,17 @@ def summarize_window(records: Iterable[dict[str, Any]], start: float, end: float
     }
 
 
-def unrelated_services_healthy(states: dict[str, dict[str, str]], target: str) -> bool:
-    """True only if every service except the target is running (and healthy where it has a healthcheck)."""
-    others = {name: state for name, state in states.items() if name != target}
+def _target_set(target: "str | Iterable[str]") -> frozenset[str]:
+    return frozenset([target]) if isinstance(target, str) else frozenset(target)
+
+
+def unrelated_services_healthy(states: dict[str, dict[str, str]], target: "str | Iterable[str]") -> bool:
+    """True only if every service except the target(s) is running (and healthy where it has a healthcheck).
+
+    A combined failure passes all of its targets: each one is expected to be unhealthy.
+    """
+    excluded = _target_set(target)
+    others = {name: state for name, state in states.items() if name not in excluded}
     if not others:
         return False
     for state in others.values():
@@ -129,7 +137,7 @@ class SliWindowObservationProvider:
         self.window_seconds = window_seconds
         self.clock = clock
 
-    def observe(self, target: str, since: float | None = None) -> dict[str, Any]:
+    def observe(self, target: "str | Iterable[str]", since: float | None = None) -> dict[str, Any]:
         end = self.clock()
         start = end - self.window_seconds
         if since is not None:

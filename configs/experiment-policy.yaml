@@ -55,6 +55,19 @@ actions:
     vehicles: 16
     duration_seconds_default: 45
     cleanup: stop_burst
+# Combined failures (stretch goal): two staged faults in ONE approved, immutable plan under ONE
+# kill switch. Only the listed action/target pairs may be combined; a pair is unordered.
+# Rules enforced in safety/policy.py: <= max_faults, one fault per target, mongodb never combined,
+# every fault ends inside max_duration_seconds, combined risk 1-prod(1-r) <= max_risk_score.
+compound:
+  enabled: true
+  max_faults: 2
+  max_stagger_seconds: 20
+  max_risk_score: 0.45
+  allowed_pairs:
+    - [traffic_burst:nginx, pause_container:things-search]
+    - [traffic_burst:nginx, cpu_throttle:things-search]
+    - [traffic_burst:nginx, restart_container:things-search]
 # Kill switch (CLAUDE.md "Kill switch thresholds"). Evaluated every poll_interval_seconds
 # while a fault is active, over the last window_seconds of SLI samples. Limits come only
 # from this file; observations can never override them.

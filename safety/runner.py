@@ -26,7 +26,7 @@ class DockerAdapter(Protocol):
 
 
 class ObservationProvider(Protocol):
-    def observe(self, target: str, since: float | None = None) -> dict[str, Any]: ...
+    def observe(self, target: "str | tuple[str, ...]", since: float | None = None) -> dict[str, Any]: ...
 
 
 class RecoveryChecker(Protocol):
@@ -93,7 +93,7 @@ class ExperimentRunner:
         forced_test: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        self.policy.validate_candidate(candidate)
+        self.policy.validate_candidate(candidate)  # also validates a combined failure
         self._validate_approval(candidate, approval)
         self._validate_baseline(baseline)
         with self._lock:
@@ -107,7 +107,10 @@ class ExperimentRunner:
             self._consumed_approvals.add(approval_key)
             self._active = True
         try:
-            run = self._run(candidate, baseline, forced_test)
+            if candidate.get("kind") == "compound":
+                run = self._run_compound(candidate, baseline, forced_test)
+            else:
+                run = self._run(candidate, baseline, forced_test)
         finally:
             with self._lock:
                 self._active = False
@@ -230,6 +233,203 @@ class ExperimentRunner:
         run["baseline_valid"] = run.get("baseline_valid", True)
         return run
 
+    def _run_compound(self, candidate: dict[str, Any], baseline: dict[str, Any], forced_test: bool = False) -> dict[str, Any]:
+        """Staged combined failure: each fault starts at its own offset and ends at its own duration.
+
+        One kill switch watches the whole window. Any abort rolls every active fault back in
+        reverse injection order; each rollback is attempted even if another one fails, and the
+        watchdog of a fault whose rollback failed stays armed.
+        """
+        thresholds = self.policy.thresholds
+        faults = sorted((dict(item) for item in candidate["faults"]), key=lambda item: item["start_offset_seconds"])
+        targets = tuple(item["target_component"] for item in faults)
+        total = candidate["duration_seconds"]
+        run_id = f"run-{uuid.uuid4().hex[:12]}"
+        timeline: dict[str, str] = {"created_at": _iso(self.wall_clock())}
+        run: dict[str, Any] = {
+            "schema_version": "1.0",
+            "run_id": run_id,
+            "experiment_id": candidate["id"],
+            "kind": "compound",
+            "status": "running",
+            "created_at": timeline["created_at"],
+            "prediction": {
+                "predicted_impacts": candidate["predicted_impacts"],
+                **({"predicted_slis": candidate["predicted_slis"]} if candidate.get("predicted_slis") else {}),
+            },
+            "observations": [],
+            "faults": [],
+            "cleanup_state": "not_started",
+            "safety_violation": False,
+            "timeline": timeline,
+        }
+        if forced_test:
+            run["forced_test"] = True
+            run["forced_test_rule"] = (
+                f"write p95 limit lowered to {FORCED_TEST_P95_MULTIPLIER}x baseline during the fault only"
+            )
+        records: list[dict[str, Any]] = []
+        for fault in faults:
+            records.append({
+                "action": fault["action"],
+                "target": fault["target_component"],
+                "start_offset_seconds": fault["start_offset_seconds"],
+                "duration_seconds": fault["duration_seconds"],
+                "state": "planned",
+                "handle": None,
+                "action_state": {},
+            })
+        injected_order: list[dict[str, Any]] = []
+        kill_switch: KillSwitch | None = None
+        try:
+            self.audit("safety_preflight_started", {"run_id": run_id, "experiment_id": candidate["id"], "targets": list(targets)})
+            for target in targets:
+                self.docker.preflight(target)
+            pre = {**self.observations.observe(targets), "phase": "pre_fault", "active_faults": []}
+            run["observations"].append(pre)
+            effective_baseline = baseline
+            if baseline_write_p95(baseline) is None:
+                effective_baseline = {**baseline, "sli": {"write_p95_ms": pre.get("write_p95_ms")}, "sli_source": "pre_fault_window"}
+            run["baseline_write_p95_ms"] = baseline_write_p95(effective_baseline)
+            kill_switch = KillSwitch(effective_baseline, self.policy)
+            steady = kill_switch.evaluate(pre, 0.0, enforce_deadline=False)
+            if steady.aborted:
+                run["status"] = "aborted"
+                run["abort_reason"] = f"steady_state_not_met:{steady.reason}"
+                run["baseline_valid"] = False
+                self.audit("experiment_refused", {"run_id": run_id, "reason": run["abort_reason"]})
+                return run
+            fault_switch = kill_switch
+            if forced_test:
+                forced_policy = dataclasses.replace(
+                    self.policy,
+                    thresholds=dataclasses.replace(self.policy.thresholds, write_p95_multiplier=FORCED_TEST_P95_MULTIPLIER),
+                )
+                fault_switch = KillSwitch(effective_baseline, forced_policy)
+
+            # Capture and arm everything BEFORE touching any target.
+            for record in records:
+                record["action_state"] = self.docker.capture(record["action"], record["target"])
+                record["params"] = {**self.policy.params_for(record["action"]), "duration_seconds": record["duration_seconds"]}
+                deadline_epoch = self.wall_clock() + record["start_offset_seconds"] + record["duration_seconds"] + self.policy.watchdog_grace_seconds
+                record["handle"] = self.watchdog.arm(record["target"], deadline_epoch, record["action"], record["action_state"])
+                record["watchdog_deadline"] = _iso(deadline_epoch)
+            run["watchdog"] = {"armed": True, "per_fault": [item["watchdog_deadline"] for item in records]}
+
+            started = self.clock()
+            pending = list(records)
+            while True:
+                elapsed = self.clock() - started
+                # Inject every fault whose start offset has arrived (marked before the command runs).
+                for record in [item for item in pending if item["start_offset_seconds"] <= elapsed]:
+                    pending.remove(record)
+                    record["state"] = "injected"
+                    record["injected_at"] = _iso(self.wall_clock())
+                    record["_started_mono"] = self.clock()
+                    injected_order.append(record)
+                    run["cleanup_state"] = "required"
+                    timeline.setdefault("injected_at", record["injected_at"])
+                    self.audit("fault_started", {"run_id": run_id, "action": record["action"], "target": record["target"]})
+                    self.docker.apply(record["action"], record["target"], record["params"], record["action_state"])
+                # A fault that reached its own end rolls back now; the others keep running.
+                elapsed = self.clock() - started
+                for record in [item for item in injected_order if item["state"] == "injected"
+                               and elapsed >= item["start_offset_seconds"] + item["duration_seconds"]]:
+                    self._rollback_fault(run, record)
+                if elapsed >= total:
+                    break
+                next_events = [item["start_offset_seconds"] - elapsed for item in pending]
+                next_events += [item["start_offset_seconds"] + item["duration_seconds"] - elapsed
+                                for item in injected_order if item["state"] == "injected"]
+                wait = min([thresholds.poll_interval_seconds, total - elapsed, *[max(0.0, event) for event in next_events]])
+                self.sleep(max(0.0, wait))
+                observation = {
+                    **self.observations.observe(targets),
+                    "phase": "fault",
+                    "active_faults": [f"{item['action']}:{item['target']}" for item in injected_order if item["state"] == "injected"],
+                }
+                run["observations"].append(observation)
+                decision = fault_switch.evaluate(observation, self.clock() - started)
+                if decision.aborted:
+                    run["status"] = "aborted"
+                    run["abort_reason"] = decision.reason
+                    timeline["abort_at"] = _iso(self.wall_clock())
+                    self.audit("experiment_aborted", {"run_id": run_id, "reason": decision.reason})
+                    break
+            if forced_test:
+                run["forced_test_passed"] = (
+                    run["status"] == "aborted" and run.get("abort_reason") == "p95_latency_above_baseline_multiplier"
+                )
+            if run["status"] == "running":
+                run["status"] = "recovering"
+        except Exception as error:  # noqa: BLE001 - any failure must still reach cleanup
+            run["status"] = "failed"
+            run["error"] = type(error).__name__
+            run["error_detail"] = str(error)[:300]
+            self.audit("runner_error", {"run_id": run_id, "error": type(error).__name__})
+        finally:
+            rollback_ok = self._rollback_all(run, records, injected_order)
+
+        if injected_order and rollback_ok and kill_switch is not None:
+            self._verify_recovery(run, targets, kill_switch)
+            # recovery_time_seconds counts from the LAST rollback; per fault it counts from that
+            # fault's own rollback, which is what compares like-for-like with a solo run.
+            recovered = timeline.get("recovered_at")
+            if recovered:
+                end = datetime.fromisoformat(recovered)
+                for record in records:
+                    if record.get("rolled_back_at"):
+                        record["recovery_after_own_rollback_seconds"] = round(
+                            (end - datetime.fromisoformat(record["rolled_back_at"])).total_seconds(), 3)
+        run["target_component"] = "+".join(targets)
+        run["baseline_valid"] = run.get("baseline_valid", True)
+        run["faults"] = [
+            {key: value for key, value in record.items() if key not in ("handle", "_started_mono")}
+            for record in records
+        ]
+        return run
+
+    def _rollback_fault(self, run: dict[str, Any], record: dict[str, Any]) -> bool:
+        """Undo one fault. Idempotent per record; leaves its watchdog armed if the rollback fails."""
+        if record["state"] != "injected":
+            return record["state"] == "rolled_back"
+        try:
+            self.docker.rollback(record["action"], record["target"], record["action_state"])
+        except Exception as error:  # noqa: BLE001
+            record["state"] = "rollback_failed"
+            record["error"] = type(error).__name__
+            self.audit("cleanup_failed", {"run_id": run["run_id"], "target": record["target"], "error": type(error).__name__, "watchdog": "left_armed"})
+            return False
+        record["state"] = "rolled_back"
+        record["rolled_back_at"] = _iso(self.wall_clock())
+        if record["handle"] is not None:
+            self.watchdog.disarm(record["handle"])
+        self.audit("cleanup_complete", {"run_id": run["run_id"], "target": record["target"]})
+        return True
+
+    def _rollback_all(self, run: dict[str, Any], records: list[dict[str, Any]], injected_order: list[dict[str, Any]]) -> bool:
+        """Reverse injection order; every rollback is attempted even if an earlier one failed."""
+        timeline = run["timeline"]
+        for record in records:
+            if record["state"] == "planned" and record["handle"] is not None:
+                self.watchdog.disarm(record["handle"])  # never injected: nothing to undo
+        if not injected_order:
+            if "watchdog" in run:
+                run["watchdog"]["armed"] = False
+            return True
+        results = [self._rollback_fault(run, record) for record in reversed(injected_order)]
+        ok = all(results)
+        if ok:
+            run["cleanup_state"] = "complete"
+            timeline["rollback_at"] = _iso(self.wall_clock())
+            run["_rollback_wall"] = self.wall_clock()
+            run["_rollback_mono"] = self.clock()
+            run["watchdog"]["armed"] = False
+        else:
+            run["cleanup_state"] = "failed"
+            run["status"] = "failed"
+        return ok
+
     def _rollback(
         self,
         run: dict[str, Any],
@@ -264,17 +464,30 @@ class ExperimentRunner:
         self.audit("cleanup_complete", {"run_id": run["run_id"], "target": target})
         return True
 
-    def _verify_recovery(self, run: dict[str, Any], target: str, kill_switch: KillSwitch) -> None:
-        """Recovered = API health + canary pass AND the SLIs since rollback are back within thresholds."""
+    def _verify_recovery(self, run: dict[str, Any], target: "str | tuple[str, ...]", kill_switch: KillSwitch) -> None:
+        """Recovered = API health + canary pass AND the SLIs since rollback are back within thresholds.
+
+        A combined failure passes every target: each one's check must pass.
+        """
+        targets = (target,) if isinstance(target, str) else tuple(target)
         rollback_wall = run.pop("_rollback_wall")
         rollback_mono = run.pop("_rollback_mono")
         deadline = rollback_mono + self.policy.recovery_timeout_seconds
         last: dict[str, Any] = {}
         while True:
-            try:
-                check = self.recovery.verify(target)
-            except Exception as error:  # noqa: BLE001
-                check = {"healthy": False, "canary": False, "error": type(error).__name__}
+            checks = []
+            for item in targets:
+                try:
+                    checks.append(self.recovery.verify(item))
+                except Exception as error:  # noqa: BLE001
+                    checks.append({"healthy": False, "canary": False, "error": type(error).__name__})
+            check = checks[0] if len(checks) == 1 else {
+                **checks[0],
+                "target": "+".join(targets),
+                "healthy": all(item.get("healthy") for item in checks),
+                "canary": all(item.get("canary") for item in checks),
+                "checks": checks,
+            }
             observation = self.observations.observe(target, since=rollback_wall)
             slis = kill_switch.evaluate(observation, 0.0, enforce_deadline=False)
             last = {**check, "slis_within_baseline": not slis.aborted, "sli_reason": slis.reason}
