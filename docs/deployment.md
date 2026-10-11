@@ -52,7 +52,7 @@ loopback stack only.
 ## Development checks
 
 ```bash
-python -m unittest discover -s tests        # 267 tests; 1 LangGraph-only test is skipped without it
+python -m unittest discover -s tests        # 273 tests; 1 LangGraph-only test is skipped without it
 python -m ai.dependency_map --check         # dependency map up to date with the compose file
 ```
 

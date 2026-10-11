@@ -32,15 +32,17 @@ needs `CHAOS_EXECUTION_ENABLED=true` and a typed human approval.
 | `POST /api/v1/experiments/{id}/approval` | Record a human decision (`decision`, `reason`, `candidate_hash`) | Writes an approval (`201`); does not execute. `404` unknown id, `409` hash mismatch or decision already recorded |
 | `POST /api/v1/experiments/{id}/execute` | — | **Always `503`**: execution is CLI-only |
 | `GET /api/v1/runs?limit=50`, `GET /api/v1/runs/{run_id}` | Run records (timeline, observations, recovery, diagnosis, score) | Read only; `404` |
+| `GET /api/v1/runs/{run_id}/interaction` | Combined-failure verdict (`amplified`, `dampened`, `no_interaction`, `inconclusive`) with the per-SLI comparison, recomputed from the stored solo runs (same fixes live, recorded earlier); `status: not_compound` for a single-fault run | Read only; `404` unknown run |
 | `GET /api/v1/findings?run_id=` | Findings, optionally for one run | Read only; `404` unknown run |
 | `GET /api/v1/findings/ranked` | Findings ranked across runs (severity, then confidence) | Read only |
 | `GET /api/v1/audit?limit=100` | Append-only audit events | Read only |
 | `GET /api/v1/policy` | Summary of `configs/experiment-policy.yaml` | Read only |
 | `GET /api/v1/watchdog?limit=50` | Watchdog log (`data/experiments/watchdog.jsonl`) | Read only |
+| `GET /api/v1/remediations` | Registered fixes (`configs/remediations.yaml`), the latest before/after run pair for each with its verdict (`verified`, `not_verified`, `inconclusive`), and whether the last run recorded each fix as live | Read only; never runs Docker: the live state is the deployment stamp the operator CLI recorded on the run (`api_reads_docker: false`) |
 | `GET /api/v1/agent-graph` | Agent graph structure (nodes, edges with gate conditions, `interrupt_before`), engine (`langgraph` or `sequential-fallback`) and the last planning state | Read only; never runs a node |
 | `POST /api/v1/agent-graph/run` | Run discover → measure → plan and stop before approval (`{"max_candidates": 1–10, "baseline_id"?}`) | Same writes as `POST /baselines` + `/experiments/plan` (`201`); a failed gate ends with `gate` and `reason`; `baseline_note` names a requested or stored baseline that was rejected or replaced. Never executes |
 | `POST /api/v1/agent-graph/resume` | Resume a paused run at the approval node | Reports each candidate's approval status and next CLI step; `409` if nothing is paused. Never executes |
-| `GET /` and `/assets/*` | Dashboard (`frontend/`) | Static files |
+| `GET /`, `GET /lab` and `/assets/*` | Dashboard (`frontend/index.html`), the lab view (`frontend/lab.html`) and their assets | Static files |
 
 ## Examples
 
