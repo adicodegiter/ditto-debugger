@@ -2,7 +2,12 @@
 // containers. "Simulate attack" replays real recorded runs (or a clearly labelled model) in the browser only.
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const api = (p) => fetch("/api/v1/" + p).then((r) => { if (!r.ok) throw new Error(p + " → " + r.status); return r.json(); });
+const API_BASE = "https://ditto-debugger1.onrender.com";
+const api = (p) =>
+  fetch(`${API_BASE}/api/v1/${p}`).then((r) => {
+    if (!r.ok) throw new Error(`${p} → ${r.status}`);
+    return r.json();
+  });
 const params = new URLSearchParams(location.search);
 const D = {};
 const running = () => sim && sim.phase !== "done";
