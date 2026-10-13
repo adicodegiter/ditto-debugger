@@ -12,11 +12,22 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
 const num = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
 
+const API_BASE = "https://ditto-debugger1.onrender.com";
+
 async function getJson(path, options) {
-  const response = await fetch(path, options);
+  const response = await fetch(`${API_BASE}${path}`, options);
   let payload = {};
-  try { payload = await response.json(); } catch { /* empty body */ }
-  if (!response.ok) throw new Error(payload.detail || `Request failed (${response.status})`);
+
+  try {
+    payload = await response.json();
+  } catch {
+    // Empty response body
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.detail || `Request failed (${response.status})`);
+  }
+
   return payload;
 }
 
