@@ -188,6 +188,22 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(result["status"], "degraded")
         self.assertLess(result["coverage"], 1.0)
 
+    def test_remote_prometheus_is_refused_by_default_and_allowed_when_enabled(self):
+        class PrometheusFixture(TelemetryObservabilityAgent):
+            def _query(self, query):
+                result = [{"metric": {"job": "ditto", "instance": "gateway:9095"}, "value": [time.time(), "1"]}] if query == "up" else []
+                return {"status": "success", "data": {"result": result}}
+
+        remote = "https://prometheus.example.com"
+        # Default: a non-loopback URL is never contacted (local-only safety default).
+        refused = PrometheusFixture(remote).collect()
+        self.assertEqual(refused["status"], "unavailable")
+        self.assertIn("remote scraping is disabled", refused["warnings"][0])
+        # Opt-in: with allow_remote the query proceeds (here it degrades because only `up` is present).
+        allowed = PrometheusFixture(remote, allow_remote=True).collect()
+        self.assertEqual(allowed["status"], "degraded")
+
+
 
 class PlanningAgentTests(unittest.TestCase):
     def test_planner_requires_current_matching_baseline_and_ranks_deterministically(self):

@@ -70,14 +70,17 @@ def normalize_prometheus_result(result: Any, metric_name: str, now_epoch: float 
 class TelemetryObservabilityAgent:
     name = "Telemetry and Observability Agent"
 
-    def __init__(self, prometheus_url: str, timeout_seconds: float = 2.0, stale_after_seconds: int = 30) -> None:
+    def __init__(self, prometheus_url: str, timeout_seconds: float = 2.0, stale_after_seconds: int = 30, allow_remote: bool = False) -> None:
         self.prometheus_url = prometheus_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.stale_after_seconds = stale_after_seconds
+        # By default only loopback Prometheus is contacted (local-only safety default). Set
+        # allow_remote (PROMETHEUS_ALLOW_REMOTE=true) to query a Prometheus you deploy yourself.
+        self.allow_remote = allow_remote
 
     def collect(self) -> dict[str, Any]:
-        if not self._is_loopback(self.prometheus_url):
-            return self._unavailable("Prometheus URL must use loopback; remote scrape targets are not contacted by this MVP.")
+        if not self.allow_remote and not self._is_loopback(self.prometheus_url):
+            return self._unavailable("Prometheus URL is not loopback and remote scraping is disabled; set PROMETHEUS_ALLOW_REMOTE=true to query a Prometheus you control.")
         observations: list[TelemetryObservation] = []
         metric_families: set[str] = set()
         try:
@@ -119,7 +122,8 @@ class TelemetryObservabilityAgent:
         url = f"{self.prometheus_url}/api/v1/query?{urlencode({'query': query})}"
         request = Request(url, headers={"Accept": "application/json"})
         with urlopen(request, timeout=self.timeout_seconds) as response:
-            if not self._is_loopback(response.geturl()):
+            # Guard against a redirect to a non-loopback host, unless remote scraping is enabled.
+            if not self.allow_remote and not self._is_loopback(response.geturl()):
                 raise ValueError("Prometheus redirected to a non-loopback URL.")
             return json.loads(response.read().decode("utf-8"))
 

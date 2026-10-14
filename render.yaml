@@ -50,6 +50,10 @@ services:
       #   sync: false
       # - key: PROMETHEUS_URL
       #   sync: false
+      # Live telemetry needs BOTH of these (see docs/deployment.md): PROMETHEUS_ALLOW_REMOTE lets the
+      # backend call a non-loopback Prometheus, and that Prometheus must be scraping a deployed Ditto.
+      # - key: PROMETHEUS_ALLOW_REMOTE
+      #   value: "true"
 
   # ---- Frontend: static dashboard site -------------------------------------------
   - type: web

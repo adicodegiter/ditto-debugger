@@ -107,6 +107,28 @@ and to the deployed backend anywhere else.
   Ditto/Prometheus as unavailable rather than pretending they are connected. No secrets belong in the
   repo; set any real keys in the dashboard, never in `render.yaml` or source.
 
+### Enabling live Prometheus telemetry (optional, two prerequisites)
+
+The Measure step needs a real signal, and there are **two** things to get right — setting the URL
+alone is not enough:
+
+1. **The backend must be allowed to call a non-loopback Prometheus.** The telemetry agent refuses any
+   non-loopback URL by default (a local-only safety rule). Set `PROMETHEUS_ALLOW_REMOTE=true` **and**
+   `PROMETHEUS_URL` to your deployed Prometheus, e.g.:
+   ```
+   PROMETHEUS_ALLOW_REMOTE = true
+   PROMETHEUS_URL = https://<your-prometheus-host>
+   ```
+2. **Prometheus must actually have targets to scrape.** The agent queries `up`,
+   `roundtrip_http_seconds_count`, `jvm_memory_bytes_sum` and `jvm_threads`. These come from the Ditto
+   services exposing metrics. So the chain is **Ditto (exposing /metrics) -> Prometheus (scraping it)
+   -> this backend (querying Prometheus)**. If no Ditto is deployed and scraped, telemetry stays
+   `degraded`/`unavailable` and planning stays blocked — which is correct, not a bug.
+
+Put auth in front of any public Prometheus (it is not authenticated by this app), and never commit
+credentials. Until both prerequisites are met, the dashboard honestly shows "No live samples" and the
+Measure step reports `unavailable`.
+
 After changing the start command or env vars, trigger a manual deploy (Render does not always pick up
 start-command edits on its own). Verify with: `curl -i https://<api>/healthz` (expect `200` and an
 `access-control-allow-origin` header on an `Origin` request) and `curl -i https://<api>/api/v1/health`.

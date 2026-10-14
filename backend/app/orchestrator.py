@@ -31,7 +31,7 @@ class AgentOrchestrator:
         pins = (settings.image_pins_file,) if settings.image_pins_file.is_file() else ()
         self.discovery_agent = DittoDiscoveryAgent(settings.compose_file, settings.kubernetes_manifests, env_files=pins)
         self.mapping_agent = ArchitectureMapperAgent()
-        self.telemetry_agent = TelemetryObservabilityAgent(settings.prometheus_url)
+        self.telemetry_agent = TelemetryObservabilityAgent(settings.prometheus_url, allow_remote=settings.prometheus_allow_remote)
         self.repository = LocalRepository(settings.database_path)
         self.policy = Policy.from_file(settings.policy_path)
         self.planning_agent = ExperimentPlanningAgent(settings.policy_path, self.repository)
