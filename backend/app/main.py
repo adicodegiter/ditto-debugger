@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -31,13 +33,47 @@ class ApprovalRequest(BaseModel):
     candidate_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
 
 
+def _cors_allowed_origins() -> list[str]:
+    """Browser origins permitted to call the API.
+
+    Defaults cover the deployed dashboard plus the local dev origins. Override with the
+    ``CORS_ALLOWED_ORIGINS`` environment variable (comma-separated) on Render. Using ``*`` is
+    intentionally avoided so the typed human-approval actions stay origin-scoped.
+    """
+    raw = os.environ.get("CORS_ALLOWED_ORIGINS")
+    if raw is not None:
+        origins = [item.strip() for item in raw.split(",") if item.strip()]
+        if origins:
+            return origins
+    return [
+        "https://ditto-debugger.onrender.com",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+
+
 def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator | None = None) -> FastAPI:
     application = FastAPI(
         title="Ditto AI Chaos Engineering Workbench",
         version="1.0.0",
-        description="Local-only, evidence-backed discovery and experiment planning. Fault execution is disabled in this build.",
+        description="Evidence-backed discovery and experiment planning. Fault execution is disabled in this build; faults run only from the operator CLI after a typed human approval.",
+    )
+    # The dashboard is served from a separate origin in production (Render static site -> this API),
+    # so the browser requires explicit CORS headers on every response, including error responses.
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_allowed_origins(),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
     )
     application.state.orchestrator = orchestrator or AgentOrchestrator(settings or Settings.from_environment())
+
+    @application.get("/healthz")
+    def healthz() -> dict[str, Any]:
+        # Liveness only: reports that this process is serving. It deliberately makes no claim about
+        # Ditto, Prometheus or any other external system being reachable.
+        return {"status": "ok"}
 
     @application.get("/api/v1/health")
     def health() -> dict[str, Any]:

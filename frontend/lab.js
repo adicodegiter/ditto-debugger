@@ -2,7 +2,16 @@
 // containers. "Simulate attack" replays real recorded runs (or a clearly labelled model) in the browser only.
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const API_BASE = "https://ditto-debugger1.onrender.com";
+// API base resolution matches the dashboard (see config.js): window.DITTO_API_BASE wins if set, otherwise
+// relative/same-origin on localhost and the deployed Render backend anywhere else.
+const DEFAULT_PRODUCTION_API_BASE = "https://ditto-debugger1.onrender.com";
+function resolveApiBase() {
+  if (typeof window.DITTO_API_BASE === "string") return window.DITTO_API_BASE.replace(/\/+$/, "");
+  const host = location.hostname;
+  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "";
+  return isLocal ? "" : DEFAULT_PRODUCTION_API_BASE;
+}
+const API_BASE = resolveApiBase();
 const api = (p) =>
   fetch(`${API_BASE}/api/v1/${p}`).then((r) => {
     if (!r.ok) throw new Error(`${p} → ${r.status}`);

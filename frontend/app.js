@@ -1,4 +1,6 @@
-// Ditto Resilience Workbench dashboard. Plain JS, no build step, served by the local API.
+// Ditto Resilience Workbench dashboard. Plain JS, no build step. The API base URL is resolved at
+// runtime (see resolveApiBase below and config.js): relative/same-origin for a locally-run API,
+// and the deployed backend when served from the static site.
 // Read-only except for the human actions the API already offers: refresh discovery, capture a
 // baseline, plan experiments, and record an approval decision. Nothing here executes a fault;
 // the API's execute endpoint always returns 503. "Replay" on the Runs page re-plays a recorded
@@ -12,10 +14,34 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
 const num = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
 
-const API_BASE = "https://ditto-debugger1.onrender.com";
+// API base URL resolution (runtime configuration; see config.js for the override point).
+//   1. window.DITTO_API_BASE wins if it was set (config.js or an injected host override).
+//   2. On localhost / 127.0.0.1 we use a relative base ("") so a locally-run API keeps working
+//      with no configuration (the API serves the dashboard from the same origin).
+//   3. Anywhere else (the deployed static site) we default to the deployed Render backend.
+const DEFAULT_PRODUCTION_API_BASE = "https://ditto-debugger1.onrender.com";
+
+function resolveApiBase() {
+  if (typeof window.DITTO_API_BASE === "string") {
+    return window.DITTO_API_BASE.replace(/\/+$/, "");
+  }
+  const host = location.hostname;
+  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "";
+  return isLocal ? "" : DEFAULT_PRODUCTION_API_BASE;
+}
+
+const API_BASE = resolveApiBase();
 
 async function getJson(path, options) {
-  const response = await fetch(`${API_BASE}${path}`, options);
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, options);
+  } catch (networkError) {
+    // fetch() only rejects on a network-level failure (offline, DNS, TLS, or a blocked
+    // cross-origin request). Surface it clearly instead of leaving the view loading forever.
+    const reason = networkError && networkError.message ? networkError.message : "network error";
+    throw new Error(`Could not reach the workbench API at ${API_BASE || location.origin} (${reason})`);
+  }
   let payload = {};
 
   try {
@@ -625,6 +651,10 @@ function bindToolbar(root, state, redraw) {
 const VIEWS = ["overview", "architecture", "experiments", "runs", "safety"];
 let pollTimer = null;
 const replay = { playing: false };
+// Tracks which views have rendered real data at least once, so a first-load failure shows a
+// full error state instead of leaving the placeholder on screen forever, while a later poll
+// failure does not wipe already-good content.
+const loadedViews = new Set();
 
 function route() {
   const [, view = "overview", detail] = (location.hash || "#/overview").split("/");
@@ -637,9 +667,11 @@ function route() {
   if (route.last !== active) window.scrollTo(0, 0);
   route.last = active;
   const loaders = { overview: loadOverview, architecture: loadArchitecture, experiments: loadExperiments, runs: () => loadRuns(detail), safety: loadSafety };
-  loaders[active]().catch(showError);
+  loaders[active]()
+    .then(() => loadedViews.add(active))
+    .catch(showError);
   if (active === "overview" || active === "safety") {
-    pollTimer = setInterval(() => { if (!replay.playing && !document.hidden) loaders[active]().catch(showError); }, 15000);
+    pollTimer = setInterval(() => { if (!replay.playing && !document.hidden) loaders[active]().then(() => loadedViews.add(active)).catch(showError); }, 15000);
   } else {
     getJson("/api/v1/slis?window=30").then(setLiveChip).catch(() => {});
   }
@@ -647,16 +679,28 @@ function route() {
 
 function showError(error) {
   console.error(error);
-  const view = $(`#view-${route.last || "overview"}`);
-  if (view && !view.innerHTML.trim()) view.innerHTML = emptyState("Could not reach the workbench API", `<p>${esc(error.message)}. Start it with <code>python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000</code>.</p>`);
+  const name = route.last || "overview";
+  const view = $(`#view-${name}`);
   $("#footer-updated").textContent = `Last error: ${error.message}`;
+  // If this view has never rendered real data, replace its placeholder with a clear error so the
+  // user is not stuck on an endless "Loading…" state. If it has loaded before, keep the good
+  // content and only report the transient error in the footer.
+  if (view && !loadedViews.has(name)) {
+    const where = API_BASE || location.origin;
+    view.innerHTML = emptyState(
+      "Could not reach the workbench API",
+      `<p>${esc(error.message)}.</p><p class="muted">The dashboard is trying to reach <code>${esc(where)}</code>. ` +
+      `If you are running the API locally, start it with <code>python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000</code> ` +
+      `and reload. The dashboard will retry automatically.</p>`
+    );
+  }
 }
 
 function setLiveChip(slis) {
   const el = $("#live-chip");
   el.classList.toggle("live", !!slis.live);
   el.classList.toggle("stale", !slis.live);
-  $("span", el).textContent = slis.live ? "Live · 127.0.0.1" : slis.latest_sample_at ? `No live samples · last ${fmt.ago(slis.latest_sample_at)}` : "No live samples · local";
+  $("span", el).textContent = slis.live ? "Live telemetry" : slis.latest_sample_at ? `No live samples · last ${fmt.ago(slis.latest_sample_at)}` : "No live samples";
 }
 const stamp = () => { $("#footer-updated").textContent = `Updated ${fmt.clock(new Date().toISOString())}`; };
 
@@ -681,7 +725,7 @@ async function loadOverview() {
   const stages = workflowStages(data);
   if (!overviewStage || !stages.find((s) => s.key === overviewStage)) overviewStage = (stages.find((s) => s.active) || stages[stages.length - 1]).key;
   view.innerHTML = `
-    <div class="page-head"><div><p class="eyebrow">Eclipse Ditto ${esc(versionOf(graph))} · local Docker Compose</p><h1 id="h-overview">System overview</h1>
+    <div class="page-head"><div><p class="eyebrow">Eclipse Ditto ${esc(versionOf(graph))} · discovered from the Compose manifests</p><h1 id="h-overview">System overview</h1>
       <p>Map the twin backend, measure it under a simulated fleet, let the planner rank safe experiments, and let a human decide. Only the control plane executes.</p></div></div>
     ${pipelineTile(stages, data)}
     <div class="bento" style="margin-top:16px">${sliTiles(data)}</div>
