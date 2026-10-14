@@ -833,7 +833,7 @@ function pipelineTile(stages, d) {
   const bands = [["advises", "Advises", "agents", 3], ["decides", "Decides", "human", 1], ["executes", "Executes", "control plane only", 1], ["advises", "Advises", "agents", 2]];
   return tile({
     cls: "hero", title: "Agent workflow", iconName: "route",
-    why: "Three agents advise, one human decides, and only the deterministic control plane executes.",
+    why: "Three agents advise, one human decides, and only the human-approved control plane executes.",
     right: live ? chip("Live", "info", "activity") : chip("Replay of last cycle · recorded", "outline", "clock"),
     body: `<div class="pipeline">
       <div class="bands">${bands.map(([cls, name, sub, span]) => `<div class="band ${cls}" style="grid-column:span ${span}">${esc(name)} <small>${esc(sub)}</small></div>`).join("")}</div>
@@ -1763,7 +1763,7 @@ async function loadSafety() {
   const view = $("#view-safety");
   const runs = groupAudit(audit.events || []);
   view.innerHTML = `
-    <div class="page-head"><div><p class="eyebrow">Deterministic control plane · configs/experiment-policy.yaml</p><h1 id="h-safety">Safety</h1>
+    <div class="page-head"><div><p class="eyebrow">Human-approved control plane · configs/experiment-policy.yaml</p><h1 id="h-safety">Safety</h1>
       <p>The kill switch, the watchdog and the policy that bounds every experiment. Limits come only from the policy file; an observation can never set its own limit.</p></div></div>
     <div class="bento">
       <div class="c7">${killSwitchPanel(KS_STATES, faultRunning ? "watching" : "armed", rows, `<div class="heartbeat"><span class="label">${faultRunning ? `Fault running now · watchdog armed on ${esc(events[0].target)}` : "Idle · no fault running"}</span></div>`, { title: "Kill switch · live check", why: "The same rules the runner applies, checked now against the last 30 s of live samples. If a fault started now, this is what it would see.", source: slis.live ? "live · last 30 s" : "no live samples" })}</div>
