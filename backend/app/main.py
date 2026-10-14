@@ -56,7 +56,7 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     application = FastAPI(
         title="Ditto AI Chaos Engineering Workbench",
         version="1.0.0",
-        description="Evidence-backed discovery and experiment planning. Fault execution is disabled in this build; faults run only from the operator CLI after a typed human approval.",
+        description="Autonomous advisory agents (discover -> measure -> plan) keep a ranked candidate set ready for a human, using a transparent, reproducible ranking. Fault execution is disabled in this build; faults run only from the operator CLI after a typed human approval.",
     )
     # The dashboard is served from a separate origin in production (Render static site -> this API),
     # so the browser requires explicit CORS headers on every response, including error responses.
@@ -68,6 +68,54 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
         allow_headers=["*"],
     )
     application.state.orchestrator = orchestrator or AgentOrchestrator(settings or Settings.from_environment())
+
+    # ---- autonomous advisory loop -------------------------------------------------------
+    # The three advisory agents (discover -> measure -> plan) re-run on a schedule so a fresh,
+    # ranked candidate set is always ready for a human. This loop is advisory only: it never
+    # saves a plan, never records an approval and never executes a fault. Execution stays behind
+    # typed human approval and the operator CLI. Off by default; enable with AUTONOMY_ENABLED=true.
+    import threading
+
+    autonomy = {
+        "enabled": os.environ.get("AUTONOMY_ENABLED", "false").lower() == "true",
+        "interval_seconds": float(os.environ.get("AUTONOMY_INTERVAL_SECONDS", "60") or 60),
+        "last_cycle": None,
+        "cycles": 0,
+        "last_error": None,
+        "executes": False,
+    }
+    application.state.autonomy = autonomy
+    _stop = threading.Event()
+    application.state.autonomy_stop = _stop
+
+    def _autonomy_loop() -> None:
+        while not _stop.wait(autonomy["interval_seconds"]):
+            try:
+                autonomy["last_cycle"] = application.state.orchestrator.autonomous_advisory_cycle()
+                autonomy["cycles"] += 1
+                autonomy["last_error"] = None
+            except Exception as error:  # noqa: BLE001 - the loop must never crash the server
+                autonomy["last_error"] = f"{type(error).__name__}: {error}"
+
+    if autonomy["enabled"]:
+        threading.Thread(target=_autonomy_loop, name="autonomous-advisory", daemon=True).start()
+
+    @application.get("/api/v1/autonomy")
+    def autonomy_status() -> dict[str, Any]:
+        # Reports the autonomous advisory loop's state. It always reports executes=false: the loop
+        # prepares candidates for a human; it never injects a fault.
+        return {
+            **autonomy,
+            "note": "Autonomous advisory loop: discover -> measure -> plan on a schedule. Advisory only; it never saves an approval or executes. Faults run only from the operator CLI after a typed human approval.",
+        }
+
+    @application.post("/api/v1/autonomy/run")
+    def autonomy_run() -> dict[str, Any]:
+        # Run one advisory cycle on demand (same non-executing pass the scheduler runs).
+        cycle = application.state.orchestrator.autonomous_advisory_cycle()
+        autonomy["last_cycle"] = cycle
+        autonomy["cycles"] += 1
+        return cycle
 
     @application.get("/healthz")
     def healthz() -> dict[str, Any]:

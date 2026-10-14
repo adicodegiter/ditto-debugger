@@ -704,23 +704,44 @@ function setLiveChip(slis) {
 }
 const stamp = () => { $("#footer-updated").textContent = `Updated ${fmt.clock(new Date().toISOString())}`; };
 
+// ---- Autonomous advisory loop status -------------------------------------------------
+// Reflects GET /api/v1/autonomy. Always framed as advisory: the loop prepares candidates for a
+// human; it never approves or executes. Execution stays behind typed human approval + operator CLI.
+function autonomyTile(a) {
+  const cycle = a.last_cycle;
+  const steps = cycle?.steps || {};
+  const statusChip = (label, ok) => chip(label, ok === true ? "ok" : ok === false ? "warn" : "outline");
+  const discover = steps.discover ? statusChip(`Discover · ${fmt.label(steps.discover.status)}`, steps.discover.status === "available") : null;
+  const measure = steps.measure ? statusChip(`Measure · ${fmt.label(steps.measure.status)}`, steps.measure.status === "available") : null;
+  const planSteps = steps.plan ? statusChip(`Plan · ${fmt.label(steps.plan.status)}`, steps.plan.status === "ok") : null;
+  const cand = (steps.plan?.candidates || []).length;
+  const body = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      ${a.enabled ? chip(`Scheduled · every ${Math.round(a.interval_seconds)} s`, "ok", "rotate") : chip("On demand", "outline", "clock")}
+      ${discover || ""}${measure || ""}${planSteps || ""}
+      ${cand ? chip(`${cand} candidate${cand === 1 ? "" : "s"} ready`, "outline") : ""}
+    </div>
+    <p class="muted" style="margin-top:8px">The three advisory agents (discover → measure → plan) re-run on their own and keep a ranked candidate set ready for you. Advisory only — it never approves or executes; faults run only from the operator CLI after a typed human approval.${cycle ? ` Last cycle ${fmt.ago(cycle.ran_at)}.` : ""}</p>`;
+  return tile({ cls: "", title: "Autonomous advisory", iconName: "rotate", why: "The agents self-drive the read-only half of the workflow so a human always has fresh, ranked proposals to review.", source: `${a.cycles} cycle${a.cycles === 1 ? "" : "s"} · executes: ${a.executes ? "yes" : "no"}`, body });
+}
+
 // ------------------------------------------------------------------ overview
 const overviewMap = { lane: "", showStartup: false, showControl: false };
 let overviewStage = null;
 let handoffPlayed = false;
 
 async function loadOverview() {
-  const [health, graph, slis, series, baselines, plans, runs, ranked, watchdog, limits] = await Promise.all([
+  const [health, graph, slis, series, baselines, plans, runs, ranked, watchdog, limits, autonomy] = await Promise.all([
     getJson("/api/v1/health"), getJson("/api/v1/dependency-map"), getJson("/api/v1/slis?window=30"),
     getJson("/api/v1/slis/series?minutes=5&bucket=10"), getJson("/api/v1/baselines?limit=5"),
     getJson("/api/v1/experiments?limit=20"), getJson("/api/v1/runs?limit=50"), getJson("/api/v1/findings/ranked"),
-    getJson("/api/v1/watchdog?limit=5"), policy(),
+    getJson("/api/v1/watchdog?limit=5"), policy(), getJson("/api/v1/autonomy").catch(() => null),
   ]);
   setLiveChip(slis);
   const baseline = baselines.baselines[0] || null;
   const scoredRuns = sortRuns(runs.runs).filter(isScored);
   const latestRun = sortRuns(runs.runs)[0] || null;
-  const data = { health, graph, slis, series: series.points || [], baseline, plans: plans.plans || [], runs: sortRuns(runs.runs), ranked: ranked.ranked || [], watchdog: watchdog.events || [], limits };
+  const data = { health, graph, slis, series: series.points || [], baseline, plans: plans.plans || [], runs: sortRuns(runs.runs), ranked: ranked.ranked || [], watchdog: watchdog.events || [], limits, autonomy };
   const view = $("#view-overview");
   const stages = workflowStages(data);
   if (!overviewStage || !stages.find((s) => s.key === overviewStage)) overviewStage = (stages.find((s) => s.active) || stages[stages.length - 1]).key;
@@ -733,6 +754,7 @@ async function loadOverview() {
       <div class="c7">${latestRunTile(scoredRuns[0] || latestRun, data)}</div>
       <div class="c5">${baselineTile(data)}</div>
     </div>
+    ${autonomy ? autonomyTile(autonomy) : ""}
     ${tile({ cls: "", title: "System and dependency map", iconName: "share", why: "Every component and edge comes from the Compose manifest, Ditto's docs or the workbench itself. Nothing is inferred.", source: `graph <code>${esc(fmt.short(graph.graph_version))}</code> · ${(graph.nodes || []).length} components`, body: `${mapToolbar("ov", overviewMap)}<div id="overview-map"></div>` })}`;
   const drawMap = () => {
     $$("[data-lane]", view).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lane === overviewMap.lane)));
@@ -1099,7 +1121,7 @@ function agentGraphTile(g) {
   const nodeText = (id, text) => id === "measure" && attempts > 1 ? `${text} · 2 attempts: reuse, then fresh capture` : text;
   const gateChip = !s ? chip("Not run yet", "", "clock") : paused ? chip("Paused before approval", "warn", "clock") : s.gate === "handed_to_operator_cli" ? chip("Handed to operator CLI", "ok", "check") : chip(`Stopped: ${s.gate}`, "bad", "x");
   const approvals = (s?.approvals || []).map((a) => `<div class="row-item"><div><b class="mono">${esc(a.experiment_id)}</b><small>${esc(a.next_step)}</small></div><div>${chip(a.approval_status, a.approval_status === "approved" ? "ok" : "warn")}</div></div>`).join("");
-  const why = `Engine: ${g.engine}${g.langgraph_available ? "" : " (LangGraph not installed; same nodes in sequence)"}. Measure first reuses the stored baseline; if the gate rejects it, it captures a fresh one once. The graph pauses before approval and never executes.`;
+  const why = `Engine: ${g.engine}${g.langgraph_available ? "" : " (LangGraph not installed; same nodes in sequence)"}. Measure first reuses the stored baseline; if the gate rejects it, it captures a fresh one once. The three advisory agents also run autonomously on a schedule (see the Autonomous advisory tile); the graph still pauses before approval and never executes.`;
   const right = `${gateChip}<button id="graph-resume" class="button" type="button" ${paused ? "" : "disabled"}>Resume at approval</button><button id="graph-run" class="button button-primary" type="button">${icon("route")}Run agent graph</button>`;
   const body = `<div class="steps graph4">${GRAPH_NODES.map(([id, title, text], i) => `<div class="step ${cls(id)}" data-node="${id}"><span class="n">${cls(id) === "done" ? icon("check", "sm") : i + 1}</span><div><b>${esc(title)}</b><small>${esc(nodeText(id, text))}</small></div></div>`).join("")}</div>
     <div id="graph-message" style="margin-top:10px">${s ? `<p class="muted">Graph run <code>${esc(s.thread_id)}</code> · trace <code>${esc(trace.join(" → "))}</code>${s.baseline_id ? ` · baseline <code>${esc(s.baseline_id)}</code>` : ""}${s.plan_id ? ` · plan <code>${esc(s.plan_id)}</code>` : ""}</p><p class="muted">${esc(s.reason || "")}</p>${s.baseline_note ? `<p class="muted">${icon("alert", "sm")} Baseline: ${esc(s.baseline_note)}</p>` : ""}` : '<p class="muted">Runs discover → measure → plan and stops before human approval. Approve with the typed dialog below; execution happens only in <code>python -m safety.cli execute</code>.</p>'}</div>

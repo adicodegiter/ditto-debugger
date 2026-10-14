@@ -43,6 +43,31 @@ class LocalApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn("disabled", response.json()["detail"])
 
+    def test_autonomy_loop_is_advisory_and_never_executes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = Settings(
+                compose_file=ROOT / "deploy" / "ditto" / "docker-compose.yml",
+                kubernetes_manifests=(),
+                prometheus_url="http://127.0.0.1:9090",
+                database_path=root / "db.sqlite3",
+                policy_path=ROOT / "configs" / "experiment-policy.yaml",
+            )
+            client = TestClient(create_app(settings))
+            status = client.get("/api/v1/autonomy").json()
+            # The loop is off by default and always reports that it does not execute.
+            self.assertFalse(status["enabled"])
+            self.assertFalse(status["executes"])
+            # An on-demand advisory cycle runs discover -> measure -> plan and stays non-executing.
+            cycle = client.post("/api/v1/autonomy/run").json()
+            self.assertFalse(cycle["executes"])
+            self.assertEqual(cycle["steps"]["discover"]["status"], "available")
+            # Without Prometheus/live samples, planning is honestly blocked rather than faked.
+            self.assertEqual(cycle["steps"]["plan"]["status"], "waiting_for_baseline")
+            # The advisory cycle never persists a plan or an approval on its own.
+            self.assertEqual(client.get("/api/v1/experiments?limit=20").json()["plans"], [])
+
+
 
 if __name__ == "__main__":
     unittest.main()

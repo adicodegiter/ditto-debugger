@@ -97,6 +97,10 @@ and to the deployed backend anywhere else.
 - `CORS_ALLOWED_ORIGINS` — comma-separated browser origins (defaults to the frontend above plus the
   local dev origins). Keep it in sync with the final frontend URL and any custom/preview domains.
 - `CHAOS_EXECUTION_ENABLED` — leave `false` (default). Execution stays in the operator CLI.
+- `AUTONOMY_ENABLED` — set `true` to run the three advisory agents (discover -> measure -> plan) on a
+  schedule so a fresh, ranked candidate set is always ready for a human. Advisory only: the loop never
+  approves or executes; faults still run only from the operator CLI after typed approval.
+  `AUTONOMY_INTERVAL_SECONDS` (default `60`) sets the cadence. Inspect it with `GET /api/v1/autonomy`.
 - `DITTO_BASE_URL`, `PROMETHEUS_URL` — **optional.** Do **not** point these at loopback; they cannot
   be reached from Render. With them unset the backend still serves health, overview, component status,
   experiments, runs and safety from the committed manifests and any recorded data, and it reports
