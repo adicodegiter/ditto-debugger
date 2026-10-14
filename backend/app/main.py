@@ -117,6 +117,63 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
         autonomy["cycles"] += 1
         return cycle
 
+    # ---- self-hosted fleet workload (drives live SLIs) --------------------------------
+    # The dashboard's "live samples" come from data/metrics/*.jsonl, which the fleet workload
+    # writes. On Render the API and the workload must share one filesystem, so the workload runs
+    # INSIDE this service (not as a separate process). It needs a reachable Ditto (DITTO_BASE_URL);
+    # with no Ditto it records an honest error and retries instead of fabricating samples.
+    # Off by default; enable with WORKLOAD_ENABLED=true once Ditto is deployed and reachable.
+    workload = {
+        "enabled": os.environ.get("WORKLOAD_ENABLED", "false").lower() == "true",
+        "duration_seconds": float(os.environ.get("WORKLOAD_DURATION_SECONDS", "60") or 60),
+        "vehicles": int(os.environ.get("WORKLOAD_VEHICLES", "4") or 4),
+        "rate_per_second": float(os.environ.get("WORKLOAD_RATE_PER_SECOND", "1.0") or 1.0),
+        "runs": 0,
+        "last_status": "not_started",
+        "last_error": None,
+        "executes_faults": False,
+    }
+    application.state.workload = workload
+    _workload_stop = threading.Event()
+    application.state.workload_stop = _workload_stop
+
+    def _workload_loop() -> None:
+        # Import lazily so a missing optional dependency never blocks API startup.
+        from simulator.fleet_workload import run_fleet_workload
+
+        while not _workload_stop.is_set():
+            try:
+                summary = run_fleet_workload(
+                    base_url=application.state.orchestrator.settings.ditto_base_url,
+                    vehicles=workload["vehicles"],
+                    duration_seconds=workload["duration_seconds"],
+                    rate_per_second=workload["rate_per_second"],
+                    metrics_dir=application.state.orchestrator.settings.metrics_dir,
+                    capture_containers=False,  # no Docker daemon on a hosted service
+                    freshness_method="poll-proxy",  # SSE needs the Ditto stream endpoint; poll is portable
+                )
+                workload["last_status"] = summary.get("status", "unknown")
+                workload["runs"] += 1
+                workload["last_error"] = None
+            except Exception as error:  # noqa: BLE001 - the loop must never crash the server
+                workload["last_status"] = "error"
+                workload["last_error"] = f"{type(error).__name__}: {error}"
+                # Back off before retrying so a missing Ditto does not spin hot.
+                _workload_stop.wait(15)
+
+    if workload["enabled"]:
+        threading.Thread(target=_workload_loop, name="fleet-workload", daemon=True).start()
+
+    @application.get("/api/v1/workload")
+    def workload_status() -> dict[str, Any]:
+        # Reports the self-hosted fleet workload. It only generates healthy twin traffic; it never
+        # injects a fault. Live SLIs require a reachable Ditto (see DITTO_BASE_URL).
+        return {
+            **workload,
+            "ditto_base_url": application.state.orchestrator.settings.ditto_base_url,
+            "note": "Self-hosted fleet workload writes live SLI samples to the shared metrics dir. It needs a reachable Ditto; without one it reports an error and retries. It never injects a fault.",
+        }
+
     @application.get("/healthz")
     def healthz() -> dict[str, Any]:
         # Liveness only: reports that this process is serving. It deliberately makes no claim about

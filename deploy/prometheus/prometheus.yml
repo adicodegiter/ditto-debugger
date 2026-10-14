@@ -1,0 +1,34 @@
+# Prometheus config for the hosted Ditto stack on Render.
+#
+# Each Ditto microservice exposes Prometheus-format metrics on port 9095. On Render these run as
+# separate services reachable by their internal hostnames. Replace the hostnames below with your
+# actual Render service names (Render private services are reachable at <name>.internal, or use the
+# service's internal address). The workbench backend queries THIS Prometheus (PROMETHEUS_URL), and
+# the backend's telemetry agent needs `up`, `roundtrip_http_seconds_count`, `jvm_memory_bytes_sum`
+# and `jvm_threads` to be present for the Measure step to report "available".
+#
+# If you deploy Ditto on a single host with Docker instead, set the targets to that host's
+# service names / ports (e.g. gateway:9095, policies:9095, things:9095, things-search:9095,
+# connectivity:9095) and skip Render's .internal names.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: ditto
+    metrics_path: /
+    static_configs:
+      - targets:
+          - gateway:9095
+          - policies:9095
+          - things:9095
+          - things-search:9095
+          - connectivity:9095
+        labels:
+          stack: ditto
+
+  # Optional: scrape the workbench API itself if you expose a metrics endpoint later.
+  # - job_name: workbench
+  #   static_configs:
+  #     - targets: ["ditto-debugger1:10000"]
