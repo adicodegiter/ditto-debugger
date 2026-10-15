@@ -369,6 +369,10 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
         return FileResponse(REPOSITORY_ROOT / "frontend" / "lab.html")
 
     application.mount("/assets", StaticFiles(directory=REPOSITORY_ROOT / "frontend"), name="assets")
+    # Root-level fallback so the dashboard's own files (app.js, config.js, styles.css, lab.css,
+    # lab.js) resolve at the site root on this API too, exactly as they do on the static host.
+    # Registered last: every API route above matches before this catch-all.
+    application.mount("/", StaticFiles(directory=REPOSITORY_ROOT / "frontend"), name="frontend")
     return application
 
 

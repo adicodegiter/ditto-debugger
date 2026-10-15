@@ -92,6 +92,13 @@ class DashboardApiTests(unittest.TestCase):
         for view in ("view-overview", "view-architecture", "view-experiments", "view-runs", "view-safety", "approve-dialog"):
             self.assertIn(view, page.text)
         self.assertEqual(self.client.get("/assets/app.js").status_code, 200)
+        # Dashboard files also resolve at the site root (matches the static hosting layout).
+        for asset in ("/app.js", "/config.js", "/lab.css", "/lab.js"):
+            with self.subTest(asset=asset):
+                self.assertEqual(self.client.get(asset).status_code, 200)
+        lab = self.client.get("/lab")
+        self.assertEqual(lab.status_code, 200)
+        self.assertIn('src="config.js"', lab.text)
         self.assertEqual(self.client.post("/api/v1/experiments/x/execute").status_code, 503)
 
 

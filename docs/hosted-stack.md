@@ -1,15 +1,62 @@
-# Hosting the live Ditto stack on Render (Option C)
+# Hosting the live Ditto stack (Option C)
 
 This is the guide for a **self-sufficient, live** deployment: the dashboard, the autonomous advisory
-agents, live telemetry, and a real fault target — all on Render. It is the honest, more involved
-alternative to the simple two-service setup in [`deployment.md`](deployment.md).
+agents, live telemetry, and a real fault target. It is the honest, more involved alternative to the
+simple two-service setup in [`deployment.md`](deployment.md).
+
+**Why you're seeing "Baseline refused: No live workload samples found":** a baseline (and any live
+telemetry) requires the fleet workload to be running against a **reachable Ditto**. On Render there
+is no Ditto, so the workload has nothing to talk to and no samples are produced. That refusal is the
+system being honest — it will not fabricate a healthy baseline. To fix it you must stand up the live
+chain below. There are two ways; the first is strongly recommended.
+
+## Recommended: run the whole Ditto stack on ONE host
+
+Your Ditto stack is a **Pekko/Akka cluster** that is happiest on a single Docker network. Instead of
+splitting it across ~9 Render services (where cross-service clustering is fragile), run the entire
+stack + Prometheus on **one** host and point the Render backend at it.
+
+```bash
+# From deploy/ditto/, on any single host Render can reach (Fly.io machine, Railway, a VPS,
+# a Render Docker/web service, or your laptop for a local demo):
+docker compose --env-file ../image-pins.env \
+  -f docker-compose.yml -f docker-compose.hosted.yml up -d
+```
+
+`docker-compose.hosted.yml` publishes the nginx gateway on `0.0.0.0:8080` and adds Prometheus
+(`0.0.0.0:9090`), all on one network so clustering and service DNS just work. Then set these on the
+**Render backend** (dashboard → Environment) and redeploy:
+
+```
+DITTO_BASE_URL          = https://<your-ditto-host>       # the nginx gateway
+DITTO_USERNAME          = ditto                           # must match nginx pre-auth
+DITTO_PASSWORD          = ditto
+PROMETHEUS_URL          = https://<your-ditto-host>:9090   # or the host's private address
+PROMETHEUS_ALLOW_REMOTE = true
+WORKLOAD_ENABLED        = true                             # backend runs the fleet workload itself
+```
+
+Once the gateway is up and the workload has run for **≥120 s with every SLI healthy**, the Overview
+"Capture baseline" button will succeed and the live chip turns green. Verify with:
+
+```bash
+curl -i https://ditto-debugger1.onrender.com/api/v1/workload    # last_status: healthy
+curl -i https://ditto-debugger1.onrender.com/api/v1/telemetry   # status: available/degraded
+```
+
+> **Security:** the hosted override publishes the gateway with the sample `ditto:ditto` pre-auth.
+> Put TLS + real auth (or a private network / firewall) in front before exposing it publicly, and
+> never reuse the sample credentials in production. `CHAOS_EXECUTION_ENABLED` stays `false` — the
+> workload only generates healthy twin traffic and never injects a fault.
+
+## Alternative: fully on Render (advanced, needs paid tiers)
+
+<details><summary>Expand the multi-service Render approach</summary>
 
 > **Read this first.** Your Ditto stack is **8 containers that form a Pekko/Akka cluster**. Render
 > does **not** run `docker-compose`, so each container becomes its own Render service. This needs
 > **paid Render tiers** and **manual iteration**. None of it can be tested from here — deploy
-> incrementally and read the logs at each step.
-
-## What "live" actually requires
+> incrementally and read the logs at each step. Prefer the single-host option above when you can.
 
 The dashboard's "live samples" come from `data/metrics/*.jsonl`, which the **fleet workload** writes,
 and the backend reads. Two consequences drove the design:

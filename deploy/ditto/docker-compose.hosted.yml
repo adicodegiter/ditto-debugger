@@ -1,0 +1,46 @@
+# Single-host override for the Ditto stack (the RECOMMENDED way to get live telemetry).
+#
+# Layer this on top of docker-compose.yml to run the WHOLE Pekko cluster + Prometheus on ONE host:
+#   docker compose --env-file ../image-pins.env \
+#     -f docker-compose.yml -f docker-compose.hosted.yml up -d
+#
+# Why this beats 9 separate Render services: the cluster stays on a single Docker network, so the
+# Pekko seed-node discovery and service DNS "just work" — none of the cross-service clustering
+# guesswork that render-stack.yaml needs. Run this on any single box that Render can reach
+# (Fly.io machine, Railway, a Render Docker/web service, a VPS, or your laptop for a local demo),
+# then point the Render backend at this host's public URL:
+#   DITTO_BASE_URL=http(s)://<this-host>            (nginx, pre-auth ditto:ditto)
+#   PROMETHEUS_URL=http(s)://<this-host-prometheus> (Prometheus, publicly if you expose 9090)
+#   PROMETHEUS_ALLOW_REMOTE=true
+#   WORKLOAD_ENABLED=true                           (the backend runs the fleet workload itself)
+#
+# SECURITY: this publishes the gateway. The sample ditto:ditto pre-auth creds are NOT safe for a
+# public host. Put TLS + real auth (or a firewall / private network) in front before exposing it,
+# and never reuse the sample credentials in production.
+
+services:
+  # Publish nginx (the pre-auth gateway front door) on all interfaces instead of loopback-only.
+  nginx:
+    ports: !override
+      - "${DITTO_EXTERNAL_BIND:-0.0.0.0}:${DITTO_EXTERNAL_PORT:-8080}:80"
+
+  # Prometheus scrapes the Ditto microservices on the same network (service DNS resolves here).
+  prometheus:
+    image: docker.io/prom/prometheus:v3.2.1
+    restart: always
+    networks:
+      default:
+        aliases:
+          - prometheus
+    ports:
+      # Publish only if you want the Render backend (or you) to reach it over the network.
+      # Prefer keeping this private and letting the backend reach it via the host's private net.
+      - "${PROMETHEUS_EXTERNAL_BIND:-0.0.0.0}:${PROMETHEUS_EXTERNAL_PORT:-9090}:9090"
+    volumes:
+      - ../../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    logging:
+      options:
+        max-size: 50m

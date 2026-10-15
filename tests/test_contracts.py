@@ -10,6 +10,26 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class _ComposeTagLoader(yaml.SafeLoader):
+    """SafeLoader that also accepts Docker Compose extension tags (e.g. ``!override``).
+
+    ``deploy/ditto/docker-compose.hosted.yml`` uses Compose's ``!override`` merge tag, which plain
+    ``yaml.safe_load`` refuses. The tag only changes merge semantics for Compose itself; for the
+    parse check the tagged value is enough.
+    """
+
+
+def _unknown_tag_constructor(loader: _ComposeTagLoader, _tag_suffix: str, node: yaml.Node):
+    if isinstance(node, yaml.ScalarNode):
+        return loader.construct_scalar(node)
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    return loader.construct_mapping(node)
+
+
+_ComposeTagLoader.add_multi_constructor("!", _unknown_tag_constructor)
+
+
 class ContractTests(unittest.TestCase):
     def test_examples_validate_against_matching_schemas(self):
         examples = {
@@ -45,7 +65,7 @@ class ContractTests(unittest.TestCase):
         self.assertGreaterEqual(len(yaml_files), 6)
         for path in yaml_files:
             with self.subTest(path=path.relative_to(ROOT)):
-                yaml.safe_load(path.read_text(encoding="utf-8"))
+                yaml.load(path.read_text(encoding="utf-8"), Loader=_ComposeTagLoader)
 
     def test_openapi_contract_is_versioned_and_covers_control_flow(self):
         contract = yaml.safe_load((ROOT / "schemas" / "openapi.yaml").read_text(encoding="utf-8"))
