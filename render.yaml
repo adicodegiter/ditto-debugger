@@ -61,6 +61,11 @@ services:
         value: "4"
       - key: WORKLOAD_RATE_PER_SECOND
         value: "1.0"
+      - key: SEED_RECORDED_RUNS
+        # Fill the (empty) runs store with the committed, real recorded runs from docs/evidence
+        # (each stamped seeded_evidence) so the Runs page shows real CLI-executed runs with replay
+        # on a deployment that cannot execute faults itself. Never applies to a non-empty store.
+        value: "true"
       # Optional, only if you later deploy Ditto/Prometheus somewhere reachable:
       # - key: DITTO_BASE_URL
       #   sync: false

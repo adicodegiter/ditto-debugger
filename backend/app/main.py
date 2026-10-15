@@ -69,6 +69,16 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     )
     application.state.orchestrator = orchestrator or AgentOrchestrator(settings or Settings.from_environment())
 
+    # Optional demo seeding: with SEED_RECORDED_RUNS=true an EMPTY store is filled with the
+    # committed, real recorded runs from docs/evidence, each stamped with its source path. Read-
+    # only, idempotent, never applies to a store that already has runs, and never executes.
+    if os.environ.get("SEED_RECORDED_RUNS", "false").lower() == "true":
+        from .seeding import seed_recorded_runs
+
+        application.state.run_seeding = seed_recorded_runs(
+            application.state.orchestrator.repository, REPOSITORY_ROOT
+        )
+
     # ---- autonomous advisory loop -------------------------------------------------------
     # The three advisory agents (discover -> measure -> plan) re-run on a schedule so a fresh,
     # ranked candidate set is always ready for a human. This loop is advisory only: it never

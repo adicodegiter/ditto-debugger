@@ -109,6 +109,11 @@ and to the deployed backend anywhere else.
   **Plan experiments** works; the stored baseline is stamped `sample_source: simulated` so it can
   never pass as live telemetry. `WORKLOAD_MODE=live` (the default) probes the real Ditto at
   `DITTO_BASE_URL` instead. Neither mode ever injects a fault.
+- `SEED_RECORDED_RUNS` — set `true` on a fresh deployment so the **Runs** page shows data. It
+  imports the committed, real recorded runs from `docs/evidence/**` (the operator-CLI runs from
+  the documented evaluations) into the **empty** store, each stamped with its source path and
+  shown with a "recorded evidence" chip. Dry runs and forced kill-switch tests are excluded. It
+  never applies to a store that already has runs and never executes anything.
 - `DITTO_BASE_URL`, `PROMETHEUS_URL` — **optional.** Do **not** point these at loopback; they cannot
   be reached from Render. With them unset the backend still serves health, overview, component status,
   experiments, runs and safety from the committed manifests and any recorded data, and it reports
