@@ -698,9 +698,13 @@ function showError(error) {
 
 function setLiveChip(slis) {
   const el = $("#live-chip");
-  el.classList.toggle("live", !!slis.live);
-  el.classList.toggle("stale", !slis.live);
-  $("span", el).textContent = slis.live ? "Live telemetry" : slis.latest_sample_at ? `No live samples · last ${fmt.ago(slis.latest_sample_at)}` : "No live samples";
+  // Simulated samples are flowing but no live Ditto is involved — never label them "Live".
+  const simulated = !!slis.simulated;
+  el.classList.toggle("live", !!slis.live && !simulated);
+  el.classList.toggle("stale", !slis.live || simulated);
+  $("span", el).textContent = simulated
+    ? "Simulated telemetry · no live Ditto"
+    : slis.live ? "Live telemetry" : slis.latest_sample_at ? `No live samples · last ${fmt.ago(slis.latest_sample_at)}` : "No live samples";
 }
 const stamp = () => { $("#footer-updated").textContent = `Updated ${fmt.clock(new Date().toISOString())}`; };
 

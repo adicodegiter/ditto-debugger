@@ -75,22 +75,31 @@ def window_stats(
 MIN_BASELINE_SECONDS = 120.0  # CLAUDE.md M2: baseline of at least 120 s
 
 
-def _latest_live_run(directory: Path) -> tuple[str | None, datetime | None, datetime | None]:
-    """The run_id of the most recent live write sample, and that run's first/last write times."""
+def _latest_live_run(directory: Path, *, include_simulated: bool = False) -> tuple[str | None, datetime | None, datetime | None, str | None]:
+    """The run_id of the most recent write sample, its first/last write times, and its source.
+
+    Simulated samples (``source: "simulated"``) are invisible unless ``include_simulated`` is set,
+    so the default baseline path can never quietly consume synthetic data.
+    """
+    allowed_sources = {"live", "simulated"} if include_simulated else {"live"}
     runs: dict[str, list[datetime]] = {}
+    sources: dict[str, str] = {}
     for record in load_jsonl(directory / "write.jsonl"):
-        if record.get("source", "live") != "live" or not record.get("run_id"):
+        source = str(record.get("source", "live"))
+        if source not in allowed_sources or not record.get("run_id"):
             continue
         timestamp = _parse_timestamp(record.get("timestamp"))
         if timestamp is None:
             continue
-        span = runs.setdefault(str(record["run_id"]), [timestamp, timestamp])
+        run_id = str(record["run_id"])
+        sources.setdefault(run_id, source)
+        span = runs.setdefault(run_id, [timestamp, timestamp])
         span[0] = min(span[0], timestamp)
         span[1] = max(span[1], timestamp)
     if not runs:
-        return None, None, None
+        return None, None, None, None
     run_id, (first, last) = max(runs.items(), key=lambda item: item[1][1])
-    return run_id, first, last
+    return run_id, first, last, sources[run_id]
 
 
 def baseline_from_metrics(
@@ -99,16 +108,20 @@ def baseline_from_metrics(
     thresholds_file: Path | str | None = None,
     window_seconds: float = 300.0,
     min_seconds: float = MIN_BASELINE_SECONDS,
+    allow_simulated: bool = False,
 ) -> dict[str, Any]:
-    """Baseline from the live samples of the most recent workload run.
+    """Baseline from the samples of the most recent workload run.
 
     Uses only that run (never older runs or saved files), at most the last
     ``window_seconds`` of it, and requires at least ``min_seconds`` of samples.
     ``status`` is ``available`` or ``unavailable`` (the store's contract).
+
+    ``allow_simulated`` accepts simulated samples (``WORKLOAD_MODE=simulated``); the returned
+    baseline is then stamped ``sample_source: "simulated"`` with a note, never as live telemetry.
     """
     directory = Path(metrics_dir)
     now = datetime.now(timezone.utc)
-    run_id, first, last = _latest_live_run(directory)
+    run_id, first, last, sample_source = _latest_live_run(directory, include_simulated=allow_simulated)
     warnings: list[str] = []
     summary: dict[str, Any] = {"status": "unhealthy", "warnings": []}
     window_start = window_end = None
@@ -120,14 +133,14 @@ def baseline_from_metrics(
         window_start = max(first, last - timedelta(seconds=window_seconds))
         span = (window_end - window_start).total_seconds()
         summary = baseline_summary(directory, now, run_id=run_id, window_start=window_start, window_end=window_end,
-                                   thresholds=load_thresholds(thresholds_file))
+                                   thresholds=load_thresholds(thresholds_file), include_simulated=allow_simulated)
         warnings.extend(summary.get("warnings", []))
         if span < min_seconds:
             warnings.append(f"Baseline needs at least {min_seconds:.0f} s of samples; run {run_id} has {span:.0f} s so far.")
         if (now - last).total_seconds() > 60:
             warnings.append(f"The latest workload run ({run_id}) stopped writing {int((now - last).total_seconds())} s ago.")
     available = run_id is not None and summary["status"] == "healthy" and not warnings
-    return {
+    result: dict[str, Any] = {
         "baseline_id": f"client-baseline-{now.strftime('%Y%m%d%H%M%S')}",
         "captured_at": now.isoformat(),
         "status": "available" if available else "unavailable",
@@ -142,3 +155,7 @@ def baseline_from_metrics(
         },
         "warnings": warnings,
     }
+    if sample_source == "simulated":
+        result["sample_source"] = "simulated"
+        result["note"] = "Captured from SIMULATED samples (WORKLOAD_MODE=simulated); not live Ditto telemetry."
+    return result

@@ -45,6 +45,22 @@ services:
         # Comma-separated browser origins allowed to call the API. Keep in sync with the
         # frontend service URL below. Add your own preview/custom domains here too.
         value: "https://ditto-debugger.onrender.com,http://localhost:8000,http://127.0.0.1:8000"
+      # Demo telemetry without a Ditto stack. WORKLOAD_MODE=simulated makes the backend write
+      # clearly LABELLED synthetic samples (source=simulated, run ids "sim-*") so the full flow
+      # (samples -> Capture baseline -> Plan experiments -> human approval) works end to end.
+      # Baselines from these samples are stamped "sample_source: simulated" — never live telemetry.
+      # Switch to WORKLOAD_MODE=live (plus DITTO_BASE_URL / PROMETHEUS_URL below) for real data.
+      - key: WORKLOAD_ENABLED
+        value: "true"
+      - key: WORKLOAD_MODE
+        value: "simulated"
+      - key: WORKLOAD_DURATION_SECONDS
+        # One simulated run lasts 10 minutes, then the loop starts the next one seamlessly.
+        value: "600"
+      - key: WORKLOAD_VEHICLES
+        value: "4"
+      - key: WORKLOAD_RATE_PER_SECOND
+        value: "1.0"
       # Optional, only if you later deploy Ditto/Prometheus somewhere reachable:
       # - key: DITTO_BASE_URL
       #   sync: false

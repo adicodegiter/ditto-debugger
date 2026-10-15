@@ -125,6 +125,7 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     # Off by default; enable with WORKLOAD_ENABLED=true once Ditto is deployed and reachable.
     workload = {
         "enabled": os.environ.get("WORKLOAD_ENABLED", "false").lower() == "true",
+        "mode": application.state.orchestrator.settings.workload_mode,
         "duration_seconds": float(os.environ.get("WORKLOAD_DURATION_SECONDS", "60") or 60),
         "vehicles": int(os.environ.get("WORKLOAD_VEHICLES", "4") or 4),
         "rate_per_second": float(os.environ.get("WORKLOAD_RATE_PER_SECOND", "1.0") or 1.0),
@@ -138,20 +139,35 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
     application.state.workload_stop = _workload_stop
 
     def _workload_loop() -> None:
-        # Import lazily so a missing optional dependency never blocks API startup.
-        from simulator.fleet_workload import run_fleet_workload
-
+        # Simulated mode writes clearly labelled synthetic samples (no Ditto needed) so the
+        # baseline -> plan -> approval flow works on a demo deployment. Live mode probes the real
+        # Ditto. Both run in this thread; neither ever injects a fault.
+        mode = application.state.orchestrator.settings.workload_mode
         while not _workload_stop.is_set():
             try:
-                summary = run_fleet_workload(
-                    base_url=application.state.orchestrator.settings.ditto_base_url,
-                    vehicles=workload["vehicles"],
-                    duration_seconds=workload["duration_seconds"],
-                    rate_per_second=workload["rate_per_second"],
-                    metrics_dir=application.state.orchestrator.settings.metrics_dir,
-                    capture_containers=False,  # no Docker daemon on a hosted service
-                    freshness_method="poll-proxy",  # SSE needs the Ditto stream endpoint; poll is portable
-                )
+                if mode == "simulated":
+                    # Import lazily so a missing optional dependency never blocks API startup.
+                    from simulator.simulated_workload import run_simulated_workload
+
+                    summary = run_simulated_workload(
+                        duration_seconds=workload["duration_seconds"],
+                        vehicles=workload["vehicles"],
+                        rate_per_second=workload["rate_per_second"],
+                        metrics_dir=application.state.orchestrator.settings.metrics_dir,
+                        stop_event=_workload_stop,
+                    )
+                else:
+                    from simulator.fleet_workload import run_fleet_workload
+
+                    summary = run_fleet_workload(
+                        base_url=application.state.orchestrator.settings.ditto_base_url,
+                        vehicles=workload["vehicles"],
+                        duration_seconds=workload["duration_seconds"],
+                        rate_per_second=workload["rate_per_second"],
+                        metrics_dir=application.state.orchestrator.settings.metrics_dir,
+                        capture_containers=False,  # no Docker daemon on a hosted service
+                        freshness_method="poll-proxy",  # SSE needs the Ditto stream endpoint; poll is portable
+                    )
                 workload["last_status"] = summary.get("status", "unknown")
                 workload["runs"] += 1
                 workload["last_error"] = None
@@ -166,12 +182,19 @@ def create_app(settings: Settings | None = None, orchestrator: AgentOrchestrator
 
     @application.get("/api/v1/workload")
     def workload_status() -> dict[str, Any]:
-        # Reports the self-hosted fleet workload. It only generates healthy twin traffic; it never
-        # injects a fault. Live SLIs require a reachable Ditto (see DITTO_BASE_URL).
+        # Reports the self-hosted fleet workload. Live mode only generates healthy twin traffic
+        # against a reachable Ditto; simulated mode writes labelled synthetic samples. Neither
+        # ever injects a fault.
+        simulated = application.state.orchestrator.settings.workload_mode == "simulated"
         return {
             **workload,
-            "ditto_base_url": application.state.orchestrator.settings.ditto_base_url,
-            "note": "Self-hosted fleet workload writes live SLI samples to the shared metrics dir. It needs a reachable Ditto; without one it reports an error and retries. It never injects a fault.",
+            "ditto_base_url": None if simulated else application.state.orchestrator.settings.ditto_base_url,
+            "note": (
+                "Simulated workload: writes clearly labelled synthetic samples (source=simulated) so the "
+                "baseline -> plan -> approval flow works without a Ditto. Baselines are stamped as simulated."
+                if simulated else
+                "Self-hosted fleet workload writes live SLI samples to the shared metrics dir. It needs a reachable Ditto; without one it reports an error and retries. It never injects a fault."
+            ),
         }
 
     @application.get("/healthz")

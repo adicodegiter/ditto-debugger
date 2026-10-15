@@ -101,6 +101,14 @@ and to the deployed backend anywhere else.
   schedule so a fresh, ranked candidate set is always ready for a human. Advisory only: the loop never
   approves or executes; faults still run only from the operator CLI after typed approval.
   `AUTONOMY_INTERVAL_SECONDS` (default `60`) sets the cadence. Inspect it with `GET /api/v1/autonomy`.
+- `WORKLOAD_ENABLED` + `WORKLOAD_MODE` — demo telemetry without any Ditto. With
+  `WORKLOAD_ENABLED=true` and `WORKLOAD_MODE=simulated` the backend writes clearly **labelled
+  synthetic samples** (`source=simulated`, run ids `sim-*`, dashboard chip "Simulated telemetry · no
+  live Ditto"), one 10-minute run at a time (`WORKLOAD_DURATION_SECONDS=600`, `WORKLOAD_VEHICLES=4`,
+  `WORKLOAD_RATE_PER_SECOND=1.0`). After ~120 s of samples, **Capture baseline** succeeds and
+  **Plan experiments** works; the stored baseline is stamped `sample_source: simulated` so it can
+  never pass as live telemetry. `WORKLOAD_MODE=live` (the default) probes the real Ditto at
+  `DITTO_BASE_URL` instead. Neither mode ever injects a fault.
 - `DITTO_BASE_URL`, `PROMETHEUS_URL` — **optional.** Do **not** point these at loopback; they cannot
   be reached from Render. With them unset the backend still serves health, overview, component status,
   experiments, runs and safety from the committed manifests and any recorded data, and it reports

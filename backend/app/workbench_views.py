@@ -52,6 +52,9 @@ def sli_window(metrics_dir: Path, window_seconds: float = 30.0, now: float | Non
     summary = summarize_window(records, start, end)
     latest = max((_parse(r.get("timestamp", r.get("ts"))) or 0 for r in records), default=None)
     methods = sorted({str(r.get("method")) for r in records if r.get("kind") == "freshness" and r.get("method")})
+    # True only when every record in the window is simulated: the samples are flowing, but no
+    # live Ditto is involved. The dashboard must not call simulated data "Live telemetry".
+    simulated = bool(records) and {str(r.get("source", "live")) for r in records} == {"simulated"}
     return {
         **summary,
         "window_seconds": window_seconds,
@@ -59,7 +62,8 @@ def sli_window(metrics_dir: Path, window_seconds: float = 30.0, now: float | Non
         "window_end": _iso(end),
         "latest_sample_at": _iso(latest) if latest else None,
         "freshness_method": methods[0] if len(methods) == 1 else ("mixed" if methods else None),
-        "live": bool(latest and end - latest < 15),
+        "live": bool(latest and end - latest < 15) and not simulated,
+        "simulated": simulated,
     }
 
 
@@ -150,6 +154,9 @@ def baseline_view(baseline: dict[str, Any]) -> dict[str, Any]:
         "captured_at": baseline.get("captured_at"),
         "graph_version": baseline.get("graph_version"),
         "telemetry_status": baseline.get("telemetry_status"),
+        # Present only for baselines captured from WORKLOAD_MODE=simulated samples; the dashboard
+        # must be able to label them as simulated, never as live telemetry.
+        "sample_source": telemetry.get("sample_source"),
         "run_id": telemetry.get("run_id"),
         "window": telemetry.get("window"),
         "write_samples": write.get("samples"),
