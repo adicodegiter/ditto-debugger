@@ -50,6 +50,9 @@ class AgentOrchestrator:
         telemetry = baseline_from_metrics(
             self.settings.metrics_dir,
             thresholds_file=self.settings.policy_path.parent / "telemetry.yaml",
+            # Simulated samples are only acceptable when the operator explicitly chose
+            # WORKLOAD_MODE=simulated; the stored baseline is stamped as simulated either way.
+            allow_simulated=self.settings.workload_mode == "simulated",
         )
         if telemetry.get("status") != "available":
             reasons = telemetry.get("warnings") or ["telemetry is not healthy"]

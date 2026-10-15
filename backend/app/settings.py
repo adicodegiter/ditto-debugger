@@ -25,6 +25,7 @@ class Settings:
     # The telemetry agent refuses to contact a non-loopback Prometheus unless this is explicitly
     # enabled. Keep it false for local-only use; set PROMETHEUS_ALLOW_REMOTE=true only when
     # pointing at a Prometheus you control (e.g. a deployed instance with auth in front of it).
+    workload_mode: str = "live"
     prometheus_allow_remote: bool = False
 
     @classmethod
@@ -51,4 +52,10 @@ class Settings:
             ditto_password=os.environ.get("DITTO_PASSWORD") or os.environ.get("DITTO_PASS") or "ditto",
             image_pins_file=Path(os.environ.get("DITTO_IMAGE_PINS", str(REPOSITORY_ROOT / "deploy" / "image-pins.env"))).expanduser(),
             prometheus_allow_remote=os.environ.get("PROMETHEUS_ALLOW_REMOTE", "false").lower() == "true",
+            # "live" probes a real Ditto (default). "simulated" writes clearly labelled synthetic
+            # samples (source=simulated) so a demo deployment can exercise baseline -> plan without
+            # a Ditto. Anything else falls back to "live" so a typo can never enable simulation.
+            workload_mode=(os.environ.get("WORKLOAD_MODE", "live") or "live").strip().lower()
+            if (os.environ.get("WORKLOAD_MODE", "live") or "live").strip().lower() in {"live", "simulated"}
+            else "live",
         )

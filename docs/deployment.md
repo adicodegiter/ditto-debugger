@@ -101,6 +101,19 @@ and to the deployed backend anywhere else.
   schedule so a fresh, ranked candidate set is always ready for a human. Advisory only: the loop never
   approves or executes; faults still run only from the operator CLI after typed approval.
   `AUTONOMY_INTERVAL_SECONDS` (default `60`) sets the cadence. Inspect it with `GET /api/v1/autonomy`.
+- `WORKLOAD_ENABLED` + `WORKLOAD_MODE` — demo telemetry without any Ditto. With
+  `WORKLOAD_ENABLED=true` and `WORKLOAD_MODE=simulated` the backend writes clearly **labelled
+  synthetic samples** (`source=simulated`, run ids `sim-*`, dashboard chip "Simulated telemetry · no
+  live Ditto"), one 10-minute run at a time (`WORKLOAD_DURATION_SECONDS=600`, `WORKLOAD_VEHICLES=4`,
+  `WORKLOAD_RATE_PER_SECOND=1.0`). After ~120 s of samples, **Capture baseline** succeeds and
+  **Plan experiments** works; the stored baseline is stamped `sample_source: simulated` so it can
+  never pass as live telemetry. `WORKLOAD_MODE=live` (the default) probes the real Ditto at
+  `DITTO_BASE_URL` instead. Neither mode ever injects a fault.
+- `SEED_RECORDED_RUNS` — set `true` on a fresh deployment so the **Runs** page shows data. It
+  imports the committed, real recorded runs from `docs/evidence/**` (the operator-CLI runs from
+  the documented evaluations) into the **empty** store, each stamped with its source path and
+  shown with a "recorded evidence" chip. Dry runs and forced kill-switch tests are excluded. It
+  never applies to a store that already has runs and never executes anything.
 - `DITTO_BASE_URL`, `PROMETHEUS_URL` — **optional.** Do **not** point these at loopback; they cannot
   be reached from Render. With them unset the backend still serves health, overview, component status,
   experiments, runs and safety from the committed manifests and any recorded data, and it reports

@@ -203,13 +203,15 @@ def _collect_samples_from_dir(
     run_id: str | None = None,
     window_start: datetime | None = None,
     window_end: datetime | None = None,
+    include_simulated: bool = False,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     if not directory.exists():
         return samples
+    allowed_sources = {"live", "simulated"} if include_simulated else {"live"}
     for path in sorted(directory.glob("*.jsonl")):
         for item in load_jsonl(path):
-            if item.get("source", "live") != "live":
+            if item.get("source", "live") not in allowed_sources:
                 continue
             if run_id is not None and item.get("run_id") != run_id:
                 continue
@@ -232,9 +234,10 @@ def baseline_summary(
     window_start: datetime | None = None,
     window_end: datetime | None = None,
     thresholds: dict[str, float] | None = None,
+    include_simulated: bool = False,
 ) -> dict[str, Any]:
     base = Path(directory)
-    samples = _collect_samples_from_dir(base, run_id=run_id, window_start=window_start, window_end=window_end)
+    samples = _collect_samples_from_dir(base, run_id=run_id, window_start=window_start, window_end=window_end, include_simulated=include_simulated)
     summary = summarize_metrics(samples, now, thresholds)
     summary["run_id"] = run_id
     summary["window"] = {

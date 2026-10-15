@@ -698,9 +698,13 @@ function showError(error) {
 
 function setLiveChip(slis) {
   const el = $("#live-chip");
-  el.classList.toggle("live", !!slis.live);
-  el.classList.toggle("stale", !slis.live);
-  $("span", el).textContent = slis.live ? "Live telemetry" : slis.latest_sample_at ? `No live samples · last ${fmt.ago(slis.latest_sample_at)}` : "No live samples";
+  // Simulated samples are flowing but no live Ditto is involved — never label them "Live".
+  const simulated = !!slis.simulated;
+  el.classList.toggle("live", !!slis.live && !simulated);
+  el.classList.toggle("stale", !slis.live || simulated);
+  $("span", el).textContent = simulated
+    ? "Simulated telemetry · no live Ditto"
+    : slis.live ? "Live telemetry" : slis.latest_sample_at ? `No live samples · last ${fmt.ago(slis.latest_sample_at)}` : "No live samples";
 }
 const stamp = () => { $("#footer-updated").textContent = `Updated ${fmt.clock(new Date().toISOString())}`; };
 
@@ -1328,7 +1332,7 @@ async function loadRuns(selected) {
       <div class="ri-top"><span class="ri-title">${esc(actionLabel(action))} · ${esc(targetText(target))}</span>${status}</div>
       <div class="ri-meta">${esc(fmt.date(r.created_at))} · <span class="mono">${esc(r.run_id)}</span></div>
       <div class="ri-meta">${isScored(r) ? `score ${esc(r.resilience_score?.score ?? "—")}` : r.forced_test ? "forced test · not scored" : "dry run · not scored"}</div>
-      ${isCompound(r) || fixesOf(r).length ? `<div class="ri-tags">${isCompound(r) ? chip(`${(r.faults || []).length} staged faults`, "info", "flask") : ""}${fixesOf(r).map((name) => chip(`fix: ${name}`, "ok", "shieldCheck")).join("")}</div>` : ""}</a>`;
+      ${isCompound(r) || fixesOf(r).length || r.seeded_evidence ? `<div class="ri-tags">${isCompound(r) ? chip(`${(r.faults || []).length} staged faults`, "info", "flask") : ""}${fixesOf(r).map((name) => chip(`fix: ${name}`, "ok", "shieldCheck")).join("")}${r.seeded_evidence ? chip(`recorded evidence · ${esc(r.seeded_evidence.split("/").slice(1, 2).join("/"))}`, "info", "file") : ""}</div>` : ""}</a>`;
   }).join("")}</nav><div id="run-detail"></div></div>`;
   const findings = ranked.ranked?.filter((f) => f.run_id === run.run_id) || [];
   const legacy = findings.length ? [] : (await getJson(`/api/v1/findings?run_id=${encodeURIComponent(run.run_id)}`)).findings || [];

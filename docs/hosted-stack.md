@@ -7,8 +7,16 @@ simple two-service setup in [`deployment.md`](deployment.md).
 **Why you're seeing "Baseline refused: No live workload samples found":** a baseline (and any live
 telemetry) requires the fleet workload to be running against a **reachable Ditto**. On Render there
 is no Ditto, so the workload has nothing to talk to and no samples are produced. That refusal is the
-system being honest — it will not fabricate a healthy baseline. To fix it you must stand up the live
-chain below. There are two ways; the first is strongly recommended.
+system being honest — it will not fabricate a healthy baseline. You have two options:
+
+1. **Demo mode (no Ditto, 5 minutes):** set `WORKLOAD_MODE=simulated` + `WORKLOAD_ENABLED=true` on
+   the Render backend and redeploy. The backend then writes clearly **labelled synthetic samples**
+   (`source=simulated`, run ids `sim-*`, dashboard chip "Simulated telemetry · no live Ditto"), and
+   after ~120 s the Capture baseline button succeeds; the stored baseline is stamped
+   `sample_source: simulated`. Plan experiments and the human-approval flow work exactly as with
+   live data; execution stays behind the operator CLI either way.
+2. **Real live data:** stand up the live chain below (a reachable Ditto + the workload) and set
+   `WORKLOAD_MODE=live` with `DITTO_BASE_URL` / `PROMETHEUS_URL`.
 
 ## Recommended: run the whole Ditto stack on ONE host
 
