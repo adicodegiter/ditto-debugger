@@ -1,0 +1,191 @@
+# FULL-STACK Render Blueprint: the workbench + the live Ditto chain (Option C).
+#
+# !!! READ FIRST -- THIS IS A SCAFFOLD, NOT A GUARANTEED WORKING DEPLOY !!!
+# Your Ditto stack is 8 containers that form a Pekko/Akka cluster. Render does NOT run
+# docker-compose, so each container becomes a separate Render service below. Before using this:
+#   * It needs PAID Render tiers. Each Ditto microservice is a JVM wanting ~512MB-1GB; the free
+#     tier (512MB, spins down when idle) will OOM and break the cluster. Budget ~$7-25/mo per
+#     service across ~8 services, plus a paid disk for MongoDB.
+#   * Pekko CLUSTERING across Render private services is the part most likely to need iteration:
+#     the seed-node hostnames must resolve to the other services' Render internal addresses, and
+#     you should verify them against the Eclipse Ditto 3.9.8 "operating Ditto" clustering docs and
+#     your Render logs. Treat the cluster env below as a starting point to adjust, not gospel.
+#   * Prometheus needs its config baked into an image (Render cannot mount a loose file into a
+#     Docker service). See docs/hosted-stack.md for the tiny wrapper Dockerfile.
+#   * I cannot test any of this (no Render access). Deploy incrementally and read the logs.
+#
+# Keep the simple 2-service render.yaml if you only need the dashboard; use THIS when you want a
+# self-sufficient live system (dashboard + autonomous agents + live telemetry + a real fault target).
+#
+# NOTE: Render private services are reachable at <name> (Blueprint) / <name>.internal. The service
+# names below (ditto-mongo, ditto-policies, ...) must match what you actually create.
+
+services:
+  # ---- MongoDB (private; persistent disk) ------------------------------------------
+  - type: pserv
+    name: ditto-mongo
+    runtime: docker
+    dockerImagePath: docker.io/mongo:7.0.14
+    plan: starter
+    region: oregon
+    disk:
+      name: ditto-mongo
+      mountPath: /data/db
+      sizeGB: 1
+    dockerCommand: mongod --storageEngine wiredTiger --noscripting
+    envVars:
+      - key: TZ
+        value: Europe/Berlin
+
+  # ---- Ditto microservices (private Pekko cluster) ---------------------------------
+  # Shared env: bind all interfaces, point at ditto-mongo, and list the cluster seed nodes.
+  # VERIFY the pekko seed-node settings against Ditto 3.9.8 clustering docs + Render logs.
+  - type: pserv
+    name: ditto-policies
+    runtime: docker
+    dockerImagePath: docker.io/eclipse/ditto-policies:3.9.8
+    plan: starter
+    region: oregon
+    envVars:
+      - key: TZ
+        value: Europe/Berlin
+      - key: BIND_HOSTNAME
+        value: 0.0.0.0
+      - key: MONGO_DB_HOSTNAME
+        value: ditto-mongo
+      - key: JAVA_TOOL_OPTIONS
+        value: "-XX:+ExitOnOutOfMemoryError -XX:+UseContainerSupport -XX:MaxRAMPercentage=50 -Dpekko.cluster.seed-names=ditto-policies,ditto-things,ditto-things-search,ditto-connectivity,ditto-gateway -Dpekko.cluster.seed-ports=2552"
+
+  - type: pserv
+    name: ditto-things
+    runtime: docker
+    dockerImagePath: docker.io/eclipse/ditto-things:3.9.8
+    plan: starter
+    region: oregon
+    envVars:
+      - key: TZ
+        value: Europe/Berlin
+      - key: BIND_HOSTNAME
+        value: 0.0.0.0
+      - key: MONGO_DB_HOSTNAME
+        value: ditto-mongo
+      - key: JAVA_TOOL_OPTIONS
+        value: "-XX:+ExitOnOutOfMemoryError -XX:+UseContainerSupport -XX:MaxRAMPercentage=50 -Dpekko.cluster.seed-names=ditto-policies,ditto-things,ditto-things-search,ditto-connectivity,ditto-gateway -Dpekko.cluster.seed-ports=2552"
+
+  - type: pserv
+    name: ditto-things-search
+    runtime: docker
+    dockerImagePath: docker.io/eclipse/ditto-things-search:3.9.8
+    plan: starter
+    region: oregon
+    envVars:
+      - key: TZ
+        value: Europe/Berlin
+      - key: BIND_HOSTNAME
+        value: 0.0.0.0
+      - key: MONGO_DB_HOSTNAME
+        value: ditto-mongo
+      - key: JAVA_TOOL_OPTIONS
+        value: "-XX:+ExitOnOutOfMemoryError -XX:+UseContainerSupport -XX:MaxRAMPercentage=50 -Dpekko.cluster.seed-names=ditto-policies,ditto-things,ditto-things-search,ditto-connectivity,ditto-gateway -Dpekko.cluster.seed-ports=2552"
+
+  - type: pserv
+    name: ditto-connectivity
+    runtime: docker
+    dockerImagePath: docker.io/eclipse/ditto-connectivity:3.9.8
+    plan: starter
+    region: oregon
+    envVars:
+      - key: TZ
+        value: Europe/Berlin
+      - key: BIND_HOSTNAME
+        value: 0.0.0.0
+      - key: MONGO_DB_HOSTNAME
+        value: ditto-mongo
+      - key: JAVA_TOOL_OPTIONS
+        value: "-XX:+ExitOnOutOfMemoryError -XX:+UseContainerSupport -XX:MaxRAMPercentage=50 -Dpekko.cluster.seed-names=ditto-policies,ditto-things,ditto-things-search,ditto-connectivity,ditto-gateway -Dpekko.cluster.seed-ports=2552"
+
+  # ---- Ditto gateway (the API entry point; pre-auth like the local stack) -----------
+  - type: web
+    name: ditto-gateway
+    runtime: docker
+    dockerImagePath: docker.io/eclipse/ditto-gateway:3.9.8
+    plan: starter
+    region: oregon
+    envVars:
+      - key: TZ
+        value: Europe/Berlin
+      - key: BIND_HOSTNAME
+        value: 0.0.0.0
+      - key: MONGO_DB_HOSTNAME
+        value: ditto-mongo
+      - key: ENABLE_PRE_AUTHENTICATION
+        value: "true"
+      - key: JAVA_TOOL_OPTIONS
+        value: "-XX:+ExitOnOutOfMemoryError -XX:+UseContainerSupport -XX:MaxRAMPercentage=50 -Dpekko.cluster.seed-names=ditto-policies,ditto-things,ditto-things-search,ditto-connectivity,ditto-gateway -Dpekko.cluster.seed-ports=2552"
+
+  # ---- Prometheus (scrapes the Ditto microservices on :9095) ------------------------
+  # Requires a wrapper image that bakes in deploy/prometheus/prometheus.yml (see docs/hosted-stack.md).
+  - type: pserv
+    name: ditto-prometheus
+    runtime: docker
+    dockerImagePath: your-dockerhub-user/ditto-prometheus:latest
+    plan: starter
+    region: oregon
+    dockerCommand: "--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus"
+
+  # ---- Workbench backend (API + autonomous loop + self-hosted workload) -------------
+  - type: web
+    name: ditto-debugger1
+    runtime: python
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "PYTHONPATH=. python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      - key: CHAOS_EXECUTION_ENABLED
+        value: "false"
+      - key: AUTONOMY_ENABLED
+        value: "true"
+      - key: AUTONOMY_INTERVAL_SECONDS
+        value: "60"
+      # Self-hosted fleet workload -> live SLIs (shares this service's filesystem with the API).
+      - key: WORKLOAD_ENABLED
+        value: "true"
+      - key: WORKLOAD_DURATION_SECONDS
+        value: "60"
+      - key: WORKLOAD_VEHICLES
+        value: "4"
+      - key: WORKLOAD_RATE_PER_SECOND
+        value: "1.0"
+      # Point at the hosted Ditto gateway and Prometheus (Render-internal hostnames).
+      - key: DITTO_BASE_URL
+        value: "http://ditto-gateway:8080"
+      - key: DITTO_USERNAME
+        value: "ditto"
+      - key: DITTO_PASSWORD
+        value: "ditto"
+      - key: PROMETHEUS_URL
+        value: "http://ditto-prometheus:9090"
+      - key: PROMETHEUS_ALLOW_REMOTE
+        value: "true"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://ditto-debugger.onrender.com,http://localhost:8000,http://127.0.0.1:8000"
+
+  # ---- Frontend static site (unchanged from the simple blueprint) --------------------
+  - type: web
+    name: ditto-debugger
+    runtime: static
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: ""
+    staticPublishPath: frontend
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: "no-cache"
+    autoDeploy: true

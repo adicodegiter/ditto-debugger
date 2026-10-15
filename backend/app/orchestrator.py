@@ -31,7 +31,7 @@ class AgentOrchestrator:
         pins = (settings.image_pins_file,) if settings.image_pins_file.is_file() else ()
         self.discovery_agent = DittoDiscoveryAgent(settings.compose_file, settings.kubernetes_manifests, env_files=pins)
         self.mapping_agent = ArchitectureMapperAgent()
-        self.telemetry_agent = TelemetryObservabilityAgent(settings.prometheus_url)
+        self.telemetry_agent = TelemetryObservabilityAgent(settings.prometheus_url, allow_remote=settings.prometheus_allow_remote)
         self.repository = LocalRepository(settings.database_path)
         self.policy = Policy.from_file(settings.policy_path)
         self.planning_agent = ExperimentPlanningAgent(settings.policy_path, self.repository)
@@ -64,6 +64,65 @@ class AgentOrchestrator:
         telemetry = baseline["telemetry"]
         plan = self.planning_agent.plan(graph, telemetry, baseline, max_candidates)
         return self.repository.save_plan(plan)
+
+    def autonomous_advisory_cycle(self, max_candidates: int = 3) -> dict[str, Any]:
+        """One self-driven advisory pass: discover (Agent 1) -> measure (Agent 2) -> plan (Agent 3).
+
+        This is the autonomous half of the workflow. It re-runs the three advisory agents on a
+        schedule and keeps a fresh, ranked candidate set ready for a human. It is deliberately
+        NON-persisting and NON-executing: it never saves a plan, never records an approval and
+        never touches a container. Fault injection stays behind typed human approval and the
+        operator CLI. Any agent that cannot run degrades to a reported status instead of raising.
+        """
+        from datetime import datetime, timezone
+
+        cycle: dict[str, Any] = {
+            "ran_at": datetime.now(timezone.utc).isoformat(),
+            "steps": {},
+            "executes": False,
+        }
+        # Agent 1: discover the current architecture from the manifests.
+        try:
+            graph = self.discover_architecture()
+            cycle["steps"]["discover"] = {
+                "status": graph.get("status"),
+                "graph_version": graph.get("graph_version"),
+                "components": len(graph.get("nodes", [])),
+            }
+        except (OSError, ValueError) as error:
+            cycle["steps"]["discover"] = {"status": "error", "detail": str(error)}
+            return cycle  # without a graph there is nothing to measure or plan against
+        # Agent 2: measure current telemetry (degrades to "unavailable" if Prometheus is unreachable).
+        try:
+            telemetry = self.collect_telemetry()
+            cycle["steps"]["measure"] = {"status": telemetry.get("status"), "coverage": telemetry.get("coverage")}
+        except (OSError, ValueError) as error:
+            cycle["steps"]["measure"] = {"status": "error", "detail": str(error)}
+        # Agent 3: rank candidates against the latest stored baseline. Preview only: nothing is saved.
+        try:
+            stored = self.repository.list_baselines(1)
+            baseline = stored[0] if stored else None
+            if baseline is None:
+                cycle["steps"]["plan"] = {"status": "waiting_for_baseline", "detail": "No baseline stored yet."}
+            else:
+                plan = self.planning_agent.plan(graph, baseline["telemetry"], baseline, max_candidates)
+                cycle["steps"]["plan"] = {
+                    "status": "ok",
+                    "baseline_id": baseline["baseline_id"],
+                    "ranking_method": plan.get("ranking_method"),
+                    "candidates": [
+                        {
+                            "id": candidate.get("id"),
+                            "target_component": candidate.get("target_component"),
+                            "action": candidate.get("action"),
+                            "risk": candidate.get("risk_score"),
+                        }
+                        for candidate in plan.get("candidates", [])
+                    ],
+                }
+        except ValueError as error:
+            cycle["steps"]["plan"] = {"status": "blocked", "detail": str(error)}
+        return cycle
 
     def compose_compound(self, first_id: str, second_id: str, stagger_seconds: int) -> dict[str, Any]:
         """Combine two planned single-fault experiments into one immutable compound candidate.

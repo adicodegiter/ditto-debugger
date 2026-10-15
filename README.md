@@ -1,6 +1,6 @@
 # Ditto AI Chaos Engineering
 
-AI-driven chaos engineering for a connected-vehicle digital-twin backend, built on Eclipse Ditto (a Bosch-originated platform). Three agents map a locally running Ditto deployment from its manifests (Agent 1), measure its healthy behaviour under a simulated vehicle fleet (Agent 2), and rank safe failure experiments with per-SLI predictions (Agent 3). A deterministic control plane runs only a human-approved, immutable plan, with a kill switch, max duration, rollback and recovery check, and the results become evidence-linked findings with a resilience score. Agents never execute anything; the API's execute endpoint always returns 503, and only the operator CLI changes a container.
+AI-driven chaos engineering for a connected-vehicle digital-twin backend, built on Eclipse Ditto (a Bosch-originated platform). Three autonomous agents map a running Ditto deployment from its manifests (Agent 1 · Discover), measure its healthy behaviour under a simulated vehicle fleet (Agent 2 · Measure), and rank safe failure experiments with per-SLI predictions (Agent 3 · Plan). The advisory agents self-drive on a schedule and keep a fresh, ranked candidate set ready for a human. Execution stays human-gated: a transparent, reproducible control plane runs only a human-approved, immutable plan, with a kill switch, max duration, rollback and recovery check, and the results become evidence-linked findings with a resilience score. Agents never execute anything; the API's execute endpoint always returns 503, and only the operator CLI changes a container.
 
 ## Why Ditto
 
@@ -188,7 +188,7 @@ Open http://127.0.0.1:8000. Start the workload (`python simulator/fleet_workload
 | **Runs** | Each run's timeline (inject → kill switch → rollback → recovered), kill-switch charts poll by poll against their limits, an in-browser replay, recovery check, where the fault landed, findings, and dry-run/forced-test labels |
 | **Safety** | Policy limits and allow-list, abort thresholds, watchdog log, audit trail; refreshed every 15 s |
 
-An experimental read-only view, `http://127.0.0.1:8000/assets/lab.html`, replays recorded runs as a labelled simulation; it never touches a container.
+An experimental read-only view, `http://127.0.0.1:8000/lab`, replays recorded runs as a labelled simulation; it never touches a container.
 
 The dashboard never executes a fault. Experiments run only from the operator CLI (`python -m safety.cli`), as described in [docs/m4-runbook.md](docs/m4-runbook.md). The read-only data endpoints behind the views are `/api/v1/slis`, `/api/v1/slis/series`, `/api/v1/baselines`, `/api/v1/policy`, `/api/v1/dependency-map`, `/api/v1/watchdog` and `/api/v1/agent-graph`. The full route list is in [docs/api-contracts.md](docs/api-contracts.md).
 

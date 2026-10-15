@@ -22,6 +22,10 @@ class Settings:
     ditto_username: str = "ditto"
     ditto_password: str = "ditto"
     image_pins_file: Path = REPOSITORY_ROOT / "deploy" / "image-pins.env"
+    # The telemetry agent refuses to contact a non-loopback Prometheus unless this is explicitly
+    # enabled. Keep it false for local-only use; set PROMETHEUS_ALLOW_REMOTE=true only when
+    # pointing at a Prometheus you control (e.g. a deployed instance with auth in front of it).
+    prometheus_allow_remote: bool = False
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -46,4 +50,5 @@ class Settings:
             ditto_username=os.environ.get("DITTO_USERNAME") or os.environ.get("DITTO_USER") or "ditto",
             ditto_password=os.environ.get("DITTO_PASSWORD") or os.environ.get("DITTO_PASS") or "ditto",
             image_pins_file=Path(os.environ.get("DITTO_IMAGE_PINS", str(REPOSITORY_ROOT / "deploy" / "image-pins.env"))).expanduser(),
+            prometheus_allow_remote=os.environ.get("PROMETHEUS_ALLOW_REMOTE", "false").lower() == "true",
         )
